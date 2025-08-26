@@ -1,0 +1,986 @@
+方案 A：用同一個 Chrome 使用者資料夾（最簡單、最穩）
+觀念：讓 ChromeDriver 啟動的 Chrome 直接使用你平常上網用的 profile，等同「同一個人、同一套瀏覽器」，自然就帶著 Teams 的 cookie/Token/LocalStorage。
+
+用這個 profile 啟動 ChromeDriver：
+-------------------------------------
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+
+options = Options()
+options.add_argument(r'--user-data-dir=C:\Users\你的帳號\AppData\Local\Google\Chrome\User Data')
+options.add_argument(r'--profile-directory=Default')  # 或 "Profile 1"
+# 可選：避免自動化橫幅，穩定性微幅提升
+options.add_experimental_option("excludeSwitches", ["enable-automation"])
+options.add_experimental_option('useAutomationExtension', False)
+
+driver = webdriver.Chrome(options=options)
+driver.get("https://teams.microsoft.com/")   # 或新版 v2： https://teams.microsoft.com/v2/
+-----------------------------------
+注意事項
+
+絕對不要同時用同一個 profile 在「手動 Chrome」和「Selenium」兩邊開啟，會鎖檔案導致啟動失敗或資料損毀。
+
+建議先把你的常用 profile 複製一份做「自動化專用」：
+例如複製 Default → Default_Auto; 然後把 --profile-directory=Default_Auto 指給 Selenium。
+
+Teams 所需的第三方 Cookie（例如 login.microsoftonline.com）如果被封鎖，登入會失敗；請確認 Chrome 設定允許（或針對該網域放行）。
+
+公司有 MFA / CA（條件式存取）/ 裝置相容性政策 時，即使帶著舊 session，也可能被要求重新驗證。
+
+
+
+
+
+
+方案 B：附著到已開啟、已登入的 Chrome（不關瀏覽器）
+
+觀念：先手動開一個 Chrome（已登入 Teams），用 --remote-debugging-port 開啟 DevTools 伺服器；Selenium 再用同個 profile 附著（attach） 進去。這樣你不用關掉原本的 Chrome，也能用它的 session。
+
+步驟
+
+先關閉所有 Chrome。
+
+用命令列手動啟動（填你的路徑與 profile）：
+-----------------------
+"C:\Program Files\Google\Chrome\Application\chrome.exe" ^
+  --remote-debugging-port=9222 ^
+  --user-data-dir="C:\Users\你的帳號\AppData\Local\Google\Chrome\User Data" ^
+  --profile-directory="Default"
+------------------------------------
+
+這個 Chrome 開起來後，先手動登入 Teams 一次確認 OK。
+
+Selenium 端附著到 9222：
+
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+
+options = Options()
+options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
+driver = webdriver.Chrome(options=options)
+----------------------------------------------------
+# 這時已經共用同一個 session / 儲存體
+driver.get("https://teams.microsoft.com/")
+
+
+優點：不會碰到「profile 正在使用中」的鎖；沿用完整登入狀態（cookie、LocalStorage、IndexedDB…）。
+缺點：需要你先用該參數啟動 Chrome。
+
+排錯清單（務必確認）
+
+版本相容：ChromeDriver 主版號要跟本機 Chrome 一致（例如都 128）。
+
+關閉衝突：若走方案 A，啟動前請關閉所有 Chrome；或改走方案 B。
+
+政策限制：公司 GPO 可能禁止自動化、限制第三方 cookie、或強制短登入時效（Sign-in frequency），這些 Selenium 改不了。
+
+MFA/SSO：需要二次驗證時，任何「沿用 cookie」方法都無法「繞過」驗證，只能在人為完成後沿用 session。
+
+Headless：新 headless（--headless=new）大多可用，但擴充套件不會載入；若 Teams 登入仰賴某擴充套件（罕見），請用非 headless。
+
+
+小結
+
+可以透過 Selenium 直接沿用你 Chrome 已登入的狀態，最推薦 方案 A（同 profile） 或 方案 B（附著到已登入的 Chrome）。
+
+單純「塞 cookie」常常不夠，因為 Teams 會用到更多瀏覽器儲存機制。
+
+若你遇到公司政策/MFA，要先在人為流程完成後再沿用 session。
+
+需要我幫你寫一個「一鍵偵測你的 Chrome profile 並用它開 Teams 的 Selenium 範例」嗎？我可以把 Windows 常見路徑、自動偵測 Default/Profile 1 的邏輯都包好給你用。
+
+
+-----------------------------------------------------------
+
+做法：附著到已登入的 Chrome（remote‑debugging）
+
+先用你的「平常那個已登入 Teams 的 Chrome 個人資料」啟動一個 Chrome，開啟 DevTools 連接埠。
+
+Selenium 用 debuggerAddress 連上那個 Chrome，因此完整沿用該個人資料的登入（cookies、LocalStorage、IndexedDB…）。
+
+一次性設定（Windows）
+
+建立一個捷徑或 .bat 來啟動 Chrome：
+
+"C:\Program Files\Google\Chrome\Application\chrome.exe" ^
+  --remote-debugging-port=9222 ^
+  --user-data-dir="C:\Users\<你的帳號>\AppData\Local\Google\Chrome\User Data" ^
+  --profile-directory="Default"
+
+
+把 <你的帳號> 與 Default 換成你實際用的 Profile。先用這個視窗手動打開 https://teams.microsoft.com/
+ 登入一次即可。
+
+-------------------------------------------------------
+
+Selenium 範例：對頻道或私聊發訊息
+
+下面提供兩個入口方式，選你方便的用：
+
+A. 頻道訊息（已知 teamId/channelId）：用 Teams deep link 直接到指定頻道
+
+B. 私聊/多人聊天：用 l/chat deep link 指定收件者（email）
+
+兩者都使用 Teams Web App 內部的可編輯輸入框：[contenteditable="true"][role="textbox"]，送出用 Keys.ENTER。
+
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.keys import Keys
+import time
+
+DEBUGGER = "127.0.0.1:9222"  # 要跟你啟動 Chrome 的埠一致
+TEAMS_BASE = "https://teams.microsoft.com/"
+
+def attach_driver():
+    opts = Options()
+    opts.add_experimental_option("debuggerAddress", DEBUGGER)
+    # 讓自動化橫幅消失，穩定性稍好
+    opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+    opts.add_experimental_option("useAutomationExtension", False)
+    driver = webdriver.Chrome(options=opts)
+    driver.implicitly_wait(0)  # 全部用顯式等待
+    return driver
+
+def wait_compose_box(driver, timeout=30):
+    # 等待訊息輸入框（contenteditable textbox）可互動
+    box = WebDriverWait(driver, timeout).until(
+        EC.element_to_be_clickable((By.CSS_SELECTOR, '[contenteditable="true"][role="textbox"]'))
+    )
+    # 有些版面會有兩個 textbox（搜尋 + 輸入框），挑可見且在畫面內的
+    if isinstance(box, list):
+        box = [b for b in box if b.is_displayed()][0]
+    return box
+
+def send_message(driver, text, newline=False):
+    box = wait_compose_box(driver, timeout=40)
+    box.click()
+    # 輸入內容（長訊息可分段送）
+    for line in text.split("\n"):
+        box.send_keys(line)
+        if newline:
+            box.send_keys(Keys.SHIFT, Keys.ENTER)  # 保留換行
+            box.send_keys(Keys.NULL)               # 釋放修飾鍵
+    # 送出
+    box.send_keys(Keys.ENTER)
+    # 簡單確認：等待訊息泡泡出現（避免立即跳頁導致未送出）
+    WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, '[data-tid="messageItemBody"]'))
+    )
+
+def open_channel(driver, team_id, channel_id, tenant_id=None):
+    # 新版深連結（舊版也可）：l/channel/{channelId}/...
+    # 名稱參數可留空；最關鍵是 teamId 與 channelId
+    url = f"https://teams.microsoft.com/l/channel/{channel_id}/?groupId={team_id}"
+    if tenant_id:
+        url += f"&tenantId={tenant_id}"
+    driver.get(url)
+    # 等待頻道訊息串載入
+    WebDriverWait(driver, 60).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, '[data-tid="channel-conversation"]'))
+    )
+
+def open_chat_with_users(driver, user_emails_csv):
+    # 單人或多人私聊（以 email 建建立對話）
+    # 例："a@contoso.com" 或 "a@contoso.com,b@contoso.com"
+    url = f"https://teams.microsoft.com/l/chat/0/0?users={user_emails_csv}"
+    driver.get(url)
+    # 等待聊天載入
+    WebDriverWait(driver, 60).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, '[data-tid="chat-list"]'))
+    )
+
+if __name__ == "__main__":
+    driver = attach_driver()
+
+    # === 選擇其一：開啟頻道 ===
+    # open_channel(driver, team_id="xxxxx-xxxx-xxxx", channel_id="yyyyy-yyyy", tenant_id="zzzzz-zzz")
+    # send_message(driver, "早安！這是 Selenium 維運訊息 ✅", newline=False)
+
+    # === 或：開啟私聊 / 多人聊天 ===
+    open_chat_with_users(driver, "user1@yourorg.com,user2@yourorg.com")
+    send_message(driver, "排程提醒：10:00 例會，請準時上線 🙌", newline=False)
+
+    # 視需要保留頁面數秒
+    time.sleep(2)
+
+小重點與排錯
+
+不要同時用同一個 Profile 跑一般 Chrome 與另一個 Selenium 連線（用「附著」法就只會有一個實體 Chrome）。
+
+第一次登入或遇到 MFA/重新驗證，請在你手動開的那個 Chrome 視窗完成；之後 Selenium 就能沿用 session。
+
+RDP 最小化/鎖螢幕：此法仍是「有頭」Chrome，在極端環境可能受影響；若機器會鎖螢幕，建議把觸發腳本放在實體或專用 VM上，並確保工作排程在解鎖時段執行，或修改電源/螢幕政策（若公司允許）。
+
+選擇器可能變動：我用的是穩定度較高的屬性選擇（role="textbox", data-tid）；但 Teams Web UI 更新仍可能變。若找不到輸入框，優先用 contenteditable="true" + role="textbox" 的組合再加 :focus 判斷。
+
+深連結好用：
+
+頻道：/l/channel/{channelId}/?groupId={teamId}&tenantId={tenantId}
+
+私聊：/l/chat/0/0?users=user1@org.com,user2@org.com
+深連結可少走很多 UI 點擊，大幅提高穩定度。
+
+Chrome 版本對應：ChromeDriver 主版號要與 Chrome 一致（例如都 128）。
+
+文字換行：send_message(..., newline=True) 會用 Shift+Enter 產生段落內換行，再最後 Enter 送出。
+
+想排程自動送？
+
+你可以把 啟動 Chrome（含 remote‑debugging） 放在登入啟動項或工作排程器開機啟動；
+
+再用工作排程器定時呼叫你的 Python 腳本（上面 if __name__ == "__main__": 那段）。
+
+如果你已經有 teamId / channelId 或收件者 email 清單，我可以幫你把上面腳本的「主程式段」改成讀取 .env 或 JSON 批次發送（含重試與送達檢查）。你只要貼 ID 或 email 清單就行。
+
+---------------------------------------------------
+
+了解！你電腦上已安裝 Teams 桌面版，但你現在的需求是：只能用 Selenium，並沿用已登入的 Chrome 狀態，自動在 Teams 發訊息。
+重點是：Selenium 只能控制瀏覽器，無法直接操控 Teams 桌面 app（那是桌面 UI，自動化要用 WinAppDriver/pywinauto 之類，和你條件衝突）。
+所以我們要強制使用 Teams 的 Web 版，而不是被自動帶去桌面 app。
+
+下面給你一套穩定流程（可直接用）：
+
+一次性設定（讓 Chrome 保持既有登入 & 可被 Selenium 附著）
+
+用你的 Teams 已登入的 Chrome 個人資料啟動一個 Chrome，開 DevTools 連接埠（別關掉它）：
+建立一個 .bat（或捷徑）：
+
+"C:\Program Files\Google\Chrome\Application\chrome.exe" ^
+  --remote-debugging-port=9222 ^
+  --user-data-dir="C:\Users\<你的帳號>\AppData\Local\Google\Chrome\User Data" ^
+  --profile-directory="Default"
+
+
+把 <你的帳號> / Default 換成你實際 profile。
+用這個視窗先手動開一次 https://teams.microsoft.com/?clientType=web 確認已登入（之後就沿用這個 session）。
+
+為什麼一定用 ?clientType=web：
+即便你電腦有桌面版，這個參數能強制走 Web 版，避免出現「Open Microsoft Teams（要不要用桌面 app 開）」的跳轉彈窗。
+
+-------------------------------------
+
+Selenium 腳本（沿用已登入的 Chrome + 發訊息）
+
+提供兩個入口：
+
+發到頻道（已知 teamId + channelId）
+
+發私聊/多人聊天（用 email deep link）
+
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.keys import Keys
+import time
+
+DEBUGGER = "127.0.0.1:9222"  # 與你啟動 Chrome 的埠一致
+BASE = "https://teams.microsoft.com/?clientType=web"  # 強制使用 Web 版
+
+def attach_driver():
+    opts = Options()
+    opts.add_experimental_option("debuggerAddress", DEBUGGER)
+    opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+    opts.add_experimental_option("useAutomationExtension", False)
+    d = webdriver.Chrome(options=opts)
+    d.implicitly_wait(0)
+    return d
+
+def wait_compose_box(driver, timeout=40):
+    # Web 版的輸入框：contenteditable + role="textbox"
+    return WebDriverWait(driver, timeout).until(
+        EC.element_to_be_clickable((By.CSS_SELECTOR, '[contenteditable="true"][role="textbox"]'))
+    )
+
+def send_message(driver, text):
+    box = wait_compose_box(driver)
+    box.click()
+    for line in text.split("\n"):
+        box.send_keys(line)
+        box.send_keys(Keys.SHIFT, Keys.ENTER)  # 保留換行
+        box.send_keys(Keys.NULL)
+    # 送出
+    box.send_keys(Keys.ENTER)
+    # 簡單送達檢查：訊息泡泡出現
+    WebDriverWait(driver, 10).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, '[data-tid="messageItemBody"]'))
+    )
+
+def open_channel(driver, team_id, channel_id, tenant_id=None):
+    url = f"https://teams.microsoft.com/l/channel/{channel_id}/?groupId={team_id}&clientType=web"
+    if tenant_id:
+        url += f"&tenantId={tenant_id}"
+    driver.get(url)
+    WebDriverWait(driver, 60).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, '[data-tid="channel-conversation"]'))
+    )
+
+def open_chat_with_users(driver, user_emails_csv):
+    # 單人或多人私聊：以 email 建立對話
+    url = f"https://teams.microsoft.com/l/chat/0/0?users={user_emails_csv}&clientType=web"
+    driver.get(url)
+    WebDriverWait(driver, 60).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, '[data-tid="chat-list"]'))
+    )
+
+if __name__ == "__main__":
+    driver = attach_driver()
+
+    # 【選一種用法】
+
+    # A) 發到頻道
+    # open_channel(driver, team_id="xxxxx-xxxx-xxxx-xxxx", channel_id="yyyyy-yyyy-yyyy-yyyy", tenant_id="zzzzz-zzzz-zzzz-zzzz")
+    # send_message(driver, "✅ Web 版訊息測試：大家早安！")
+
+    # B) 發私聊/多人聊天（用逗號分隔 email）
+    open_chat_with_users(driver, "user1@yourorg.com,user2@yourorg.com")
+    send_message(driver, "排程提醒：10:00 例行會議，請準時上線 🙌")
+
+    time.sleep(1)
+
+常見坑位 & 解法
+
+被帶去桌面 app：URL 一律加 ?clientType=web；若仍彈「Open Microsoft Teams」對話，選「繼續使用網頁版」（會記住偏好）。
+
+公司用 SSO/MFA：第一次要在你手動開的那個 Chrome 視窗完成驗證；之後 Selenium 就沿用 session。
+
+RDP/鎖螢幕影響：這套是「有頭」Chrome。若機器會鎖螢幕、RDP 最小化，可能影響穩定性；盡量放在不會自動鎖螢幕的機器或調整電源政策（若公司允許）。
+
+元素變動：我使用較穩的 selector（[role="textbox"][contenteditable="true"]、[data-tid="..."]）。若 Teams UI 更新，優先找同樣語義屬性；必要時 time.sleep(1-2) 增強穩定性。
+
+Chrome 版本相容：ChromeDriver 主版號需與 Chrome 一致。
+
+不要同時打開相同 Profile 的第二個 Chrome：我們是「附著」到既有 Chrome，所以不會另開一個；保持這個模式即可避免檔案鎖競爭。
+
+如果你給我 teamId / channelId 或 收件者 email 清單，我可以把主程式改成讀 .env 或 JSON 批次發送，順便加上重試/日誌的簡易框架，讓你直接丟進排程器跑。
+
+---------------------------------------------------
+
+我幫你分「瀏覽器 session」和「Teams 登入存活時間」兩個層面說明：
+
+1. 瀏覽器層 (Chrome + Profile)
+
+你用 Selenium 附著到 已登入的 Chrome profile（或是 remote-debugging-port 開的那個 Chrome），
+session 其實就是「這個 Chrome 視窗裡的所有登入憑證」。
+
+只要：
+
+不要關掉 Chrome
+
+不要刪除或覆蓋 Profile
+那麼 session 會一直活著，Selenium 連上它時就能沿用。
+
+一旦那個 Chrome 視窗被關閉，Selenium 也斷線；下次再開會重新建立 session（不會沿用之前的 debugger session id）。
+
+2. Teams 登入層 (Token 機制)
+
+Teams/Web 其實背後是 Azure AD + Microsoft 365 登入：
+
+Access Token：壽命通常 1 小時左右。
+
+Refresh Token：常見 24 小時～90 天（取決於公司租戶的 Sign-in frequency policy，可由 IT 管理員設定）。
+
+例如很多公司設定 7 天必須重新驗證一次，或 12 小時就要輸入一次密碼/MFA。
+
+Keep-alive：只要你有定期活動（例如打開頁面、送訊息），Teams Web 會用 Refresh Token 自動更新 Access Token → 表現為「幾乎一直在線」。
+
+所以：
+👉 在沒有額外公司政策限制時，「一個已登入的 Teams Web session」可以存活數週甚至數月，直到：
+
+你清除了 cookies / LocalStorage / IndexedDB；
+
+或 IT 設定的 token lifetime 到期（強迫重新登入）；
+
+或你換密碼 / IT 強制登出所有裝置。
+
+3. 跟 Selenium 實務上怎麼搭配？
+
+同一個 Chrome 視窗 + Profile 可以撐很久（只要不關）。
+
+若要長期排程（每天自動發訊息）：
+
+建議專門準備一個 自動化用的 Chrome profile（避免你日常操作打斷）。
+
+第一次登入 Web Teams，完成 MFA。
+
+之後就可以用 Selenium 定期附著 → 發訊息。
+
+直到 IT 政策要求重新驗證，你才需要手動再登入一次。
+
+✅ 總結
+
+Chrome debugger session：活到你關掉那個 Chrome 視窗為止。
+
+Teams 登入 session：取決於公司政策，通常數天到數週；沒有清 cookies 的話可自動續期。
+
+實務上只要不關掉 profile，通常能維持「數週以上」的無人自動化。
+
+要不要我幫你設計一個「監測登入是否過期」的小函式？
+例如：定期檢查網頁中是否還有 data-tid="messageItemBody" 或 登入頁表單，一旦偵測到掉線就自動通知你（寄 email 或寫 log），這樣你就知道什麼時候需要人工重新登入。
+
+
+
+
+---------------------------------------
+
+這邊要分兩個層次來看：
+
+1️⃣ 「完全隱藏 Chrome 視窗」可不可行？
+
+不行：因為你是用 remote-debugging-port 附著到一個「正常的 Chrome Profile」，這一定是「有頭」（visible）模式。
+
+原因：
+
+如果用 --headless，Chrome 不會載入使用者 Profile 的完整資料（cookies、LocalStorage、IndexedDB），Teams Web 幾乎一定會判定你沒登入 → 直接導去登入頁。
+
+所以要沿用「已登入狀態」，必須啟動一個「正常有頭的 Chrome」。
+
+2️⃣ 那能不能「隱藏／最小化／不干擾」？
+
+可以，有幾個做法：
+
+🟡 方法 A：最小化啟動
+
+啟動 Chrome 時加參數：
+
+--start-minimized
+
+
+→ 開機就縮到工作列，不影響螢幕畫面。
+
+🟡 方法 B：指定位置 / 大小到螢幕外
+
+加參數：
+
+--window-position=-32000,-32000 --window-size=800,600
+
+
+→ 把視窗丟到螢幕外邊界，等於「肉眼看不到」。
+
+🟡 方法 C：Selenium 操控視窗
+
+Selenium 連上後可以呼叫：
+
+driver.minimize_window()
+# 或者移到螢幕外
+driver.set_window_position(-2000, 0)
+
+🟡 方法 D：放在虛擬桌面 / VM
+
+Windows 10+ 支援多桌面，可以把自動化的 Chrome 丟到另一個桌面；
+
+或者直接在 VM 裡跑，外面不會看到任何視窗。
+
+3️⃣ ⚠️ 注意事項
+
+不可全隱藏：若用工具把視窗強制「完全隱藏（hide window handle）」有時候會讓 GPU / 渲染暫停，Teams 可能卡住 → Selenium 抓不到元素。
+
+最好是「最小化」而不是「隱形」，這樣渲染還在進行，但不干擾你桌面。
+
+排程環境：若你打算放在 Windows Task Scheduler 裡跑，記得指定「執行時不顯示視窗」，但 Chrome 仍會以背景程式方式啟動。
+
+✅ 總結
+
+不能用 headless（會失去登入狀態）。
+
+但可以用 --start-minimized 或 --window-position 讓 Chrome「最小化 / 丟到螢幕外」，達到幾乎隱藏的效果。
+
+最穩定的方式是「最小化」而不是完全隱藏。
+
+要不要我幫你寫一個 專門的啟動參數範例（同時包含 profile、remote-debugging、最小化/隱藏視窗位置），讓你直接複製就能用來啟動這個「隱形 Chrome for Teams」？
+
+
+
+-----------------------------------------------------
+Selenium 本身沒有「切換 Windows 虛擬桌面」的 API，但可以用系統方法把 Chrome 視窗移到另一個桌面，這樣你主桌面就乾淨了。
+
+💡 背景知識
+
+Windows 10/11 的「虛擬桌面」(Virtual Desktops) 是系統層功能，
+
+Selenium 只能控制「瀏覽器 DOM」，無法直接操作桌面。
+
+要搬視窗到另一桌面，需要額外呼叫 Windows API。
+
+🛠️ 方法 1：用快捷鍵自動搬移 (最簡單)
+
+在 Windows 上：
+
+Win + Ctrl + D → 建立新桌面
+
+Win + Ctrl + →/← → 切換桌面
+
+Win + Tab → 右鍵視窗 → 移到桌面X → 手動操作
+
+如果只要「一次設定好，之後固定放在桌面 2」，你可以用 AutoHotkey（AHK）或 PowerShell 做自動化，啟動 Chrome 後自動搬走。
+
+🛠️ 方法 2：Python + pyvda (Virtual Desktop API)
+
+有一個第三方套件 pyvda，能直接把指定視窗丟到特定虛擬桌面。
+（注意：需要能安裝 pip 套件）
+
+安裝：
+
+pip install pyvda pywin32
+
+
+範例：
+
+import win32gui
+import pyvda
+
+# 找到 Chrome 視窗 (用標題關鍵字)
+def get_chrome_hwnd():
+    hwnds = []
+    def callback(hwnd, _):
+        if win32gui.IsWindowVisible(hwnd):
+            title = win32gui.GetWindowText(hwnd)
+            if "Google Chrome" in title:
+                hwnds.append(hwnd)
+    win32gui.EnumWindows(callback, None)
+    return hwnds[0] if hwnds else None
+
+chrome_hwnd = get_chrome_hwnd()
+if chrome_hwnd:
+    desktop2 = pyvda.VirtualDesktop(2)   # 第二個桌面
+    pyvda.MoveWindowToDesktop(chrome_hwnd, desktop2)
+    print("已移動到桌面 2")
+else:
+    print("找不到 Chrome 視窗")
+
+🛠️ 方法 3：用 VM / RDP 代替
+
+如果公司允許，乾脆在一台 VM（或另一個使用者帳號）裡跑自動化，主桌面就不會看到任何視窗。
+
+⚠️ 注意事項
+
+pyvda 只能在 Windows 10+ 用，且需要有虛擬桌面功能開啟。
+
+如果你的環境 不能安裝第三方套件（例如公司 GPO 限制），那就只能用 快捷鍵/手動移動，或者跑在 VM。
+
+把 Chrome 丟到另一桌面後，它依然在跑、Selenium 照樣能控制；只是你主桌面不會看到。
+
+✅ 總結
+
+簡單方案：手動 Win+Tab，把 Chrome 丟到桌面 2。
+
+程式化方案：用 pyvda 搭配 win32gui 自動搬。
+
+隔離方案：直接用 VM / RDP 跑。
+
+要不要我幫你寫一個 完整的啟動腳本（同時啟動 Chrome + remote-debugging + 自動搬到桌面 2），這樣你一鍵就能得到一個「隱藏在桌面 2」的 Teams 自動化瀏覽器？
+
+------------------------------------
+
+可以的！你可以同時跑「兩隻」Selenium。做法與注意事項如下：
+
+核心原則
+
+每一隻 WebDriver = 一個獨立瀏覽器會話
+你可以在同一支程式裡建立兩個 webdriver.Chrome() 物件，或分成兩個行程（建議）。
+
+避免共用同一個 profile
+
+給 Teams 用的一隻：附著到已登入的 Chrome（debuggerAddress）。
+
+給 其他任務的一隻：開 新的 Chrome 實例（不同的 user-data-dir，或乾脆不指定；也可以 headless）。
+
+不要同時用兩個實例占用同一個 user-data-dir
+同一個 profile 同時間只能被一個 Chrome 實例開啟，否則會鎖檔或損毀。
+
+不要兩隻同時附著同一個 remote-debugging-port
+雖然 CDP 技術上可多連線，但實務上容易互踩（事件流、焦點、tab 切換），不建議。
+
+實作範例：兩隻同時跑
+
+A：附著到你已登入 Teams 的 Chrome（先用 --remote-debugging-port=9222 起好）
+
+B：獨立一個乾淨的自動化瀏覽器（可 headless）
+
+import time
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+
+# ===== A：附著到已登入的 Chrome（Teams）=====
+def attach_teams_driver():
+    opts = Options()
+    opts.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
+    opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+    opts.add_experimental_option("useAutomationExtension", False)
+    return webdriver.Chrome(options=opts)
+
+# ===== B：開新的 Chrome（做其他事）=====
+def new_worker_driver(headless=True, user_data_dir=None):
+    opts = Options()
+    if headless:
+        opts.add_argument("--headless=new")
+        opts.add_argument("--disable-gpu")
+    if user_data_dir:
+        opts.add_argument(f"--user-data-dir={user_data_dir}")  # 注意：不能與 Teams 那隻相同
+    return webdriver.Chrome(options=opts)
+
+# 建立兩個 WebDriver 物件
+teams = attach_teams_driver()
+worker = new_worker_driver(headless=True)  # 或 headless=False 視需求
+
+# 各做各的
+teams.get("https://teams.microsoft.com/?clientType=web")   # 用你的發訊息流程即可
+worker.get("https://example.com/")                         # 另一隻做別的工作
+
+time.sleep(2)
+
+# 結束（teams 那隻只是斷開控制，不會關掉原本 Chrome 視窗）
+worker.quit()
+# teams.quit()  # 如果你想解除附著，可呼叫；原本那個已登入的 Chrome 仍會留著
+
+併發建議
+
+同一程式同時操控：用兩個 thread 可以，但 Selenium 呼叫是阻塞的；
+想要更穩，改用 multiprocessing / 兩支獨立腳本，互不影響。
+
+資源：兩個瀏覽器很吃 RAM/CPU，盡量讓「其他任務」那隻跑 headless。
+
+視窗干擾：Teams 那隻可以最小化／丟到另一個桌面；另一隻 headless 就不會出現視窗。
+
+常見坑位
+
+port 衝突：只有「附著那隻」需要 debuggerAddress；另一隻不要設定（或若你真的要第二個可附著 Chrome，請用不同的 --remote-debugging-port，例如 9223，且不同 user-data-dir）。
+
+同 profile 競爭：不要讓第二隻用到 Teams 的同一個 user-data-dir。
+
+焦點影響：若兩隻都「有頭」，且都在同一個桌面上操作同一個螢幕，可能互搶焦點；把 Teams 那隻最小化或移到虛擬桌面。
+
+總結
+
+可以同時啟用兩隻 Selenium。
+
+讓 Teams 專用的一隻附著到你已登入的 Chrome；
+
+另一隻用 新的獨立實例（最好 headless） 做其他事；
+
+切記 不同 profile / 不同 debugging port / 盡量分桌面或 headless，就能穩定共存。
+
+如果你要，我可以把這套拆成兩個可排程的腳本範本（含 .bat 啟動、日誌與錯誤重試），讓它們互不干擾地長期跑。
+
+
+
+可以！要同時「兩隻都附著到 Chrome」，重點是：啟兩個不同的 Chrome 實例，各自用不同的 remote‑debugging‑port，而且不同的 user‑data‑dir / profile（同一個 profile 不能同時開兩次）。
+
+下面給你完整可用的做法（Windows）：
+
+① 先啟兩個 Chrome（各自的連接埠與個人資料夾）
+A. Teams 用（沿用你平常已登入的那個 profile）
+
+建立 start_teams_chrome.bat：
+
+@echo off
+set CHROME="C:\Program Files\Google\Chrome\Application\chrome.exe"
+set USERDATA=C:\Users\<你的帳號>\AppData\Local\Google\Chrome\User Data
+set PROFILE=Default
+
+%CHROME% ^
+  --remote-debugging-port=9222 ^
+  --user-data-dir="%USERDATA%" ^
+  --profile-directory="%PROFILE%" ^
+  --start-minimized ^
+  --app="https://teams.microsoft.com/?clientType=web"
+
+
+把 <你的帳號> / Default 換成你實際的。第一次請手動在這個視窗完成登入（含 MFA）。
+
+B. 另一隻工作用（獨立 profile）
+
+建立一個自動化專用 profile（避免鎖檔），例如 User Data\Auto1。
+start_worker_chrome.bat：
+
+@echo off
+set CHROME="C:\Program Files\Google\Chrome\Application\chrome.exe"
+set USERDATA=C:\Users\<你的帳號>\AppData\Local\Google\Chrome\User Data
+set PROFILE=Auto1
+
+%CHROME% ^
+  --remote-debugging-port=9223 ^
+  --user-data-dir="%USERDATA%" ^
+  --profile-directory="%PROFILE%" ^
+  --start-minimized
+
+
+兩個批次檔都可以放到工作排程器開機啟動；port 必須不同（9222 / 9223），profile 也不同。
+
+② Selenium 同時附著兩隻（各連到不同的埠）
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+
+def attach(debugger_addr: str) -> webdriver.Chrome:
+    opts = Options()
+    opts.add_experimental_option("debuggerAddress", debugger_addr)
+    # 可選：略減少自動化橫幅
+    opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+    opts.add_experimental_option("useAutomationExtension", False)
+    return webdriver.Chrome(options=opts)
+
+# A：Teams（連到 9222）
+teams = attach("127.0.0.1:9222")
+
+# B：另一隻工作用（連到 9223）
+worker = attach("127.0.0.1:9223")
+
+# === 各做各的事 ===
+teams.get("https://teams.microsoft.com/?clientType=web")  # 這隻照你的發訊流程即可
+worker.get("https://example.com/")                        # 另一隻做其他自動化任務
+
+# …完成後（注意：quit() 只會斷開控制，不會關掉原本的 Chrome 視窗）
+# worker.quit()
+# teams.quit()
+
+穩定度 & 小提醒
+
+不要共用同一個 user-data-dir/profile：同一 profile 同時只有一個 Chrome 能用；第二個會鎖檔或損毀。
+
+每隻一個埠：例如 9222 與 9223；若要更多實例，依序 9224、9225…。
+
+最小化/不干擾：批次檔裡加了 --start-minimized；也可在附著後 driver.minimize_window() 或把視窗移到其他桌面（你前面提過 pyvda 方案）。
+
+RDP/鎖螢幕：這是「有頭」Chrome，極端情況可能受影響；建議放在不會自動鎖螢幕的機器或專用 VM。
+
+版本對應：ChromeDriver 主版號要與 Chrome 一致。
+
+Teams 強制 Web：連 Teams 時記得 ?clientType=web，避免被帶去桌面 App。
+
+日誌與故障回復：建議在 Python 端加 try/retry 與簡單健康檢查（例如檢查是否還在聊天頁、有無輸入框）。
+
+這樣你就能「兩隻都附著到不同的 Chrome」，一隻專門管 Teams，另一隻同時做其他任務，互不干擾、穩定運行。需要我幫你把上面 Python 程式補上訊息輸入/送出函式與健康檢查骨架嗎？
+
+
+---------------------------------------------------
+
+
+
+
+
+
+如何檢查 ChromeDriver 主版號要與 Chrome 一致 , 若不相同自動到pypl 下載
+ChatGPT 說：
+已思考 21s
+
+可以！下面給你一個一鍵檢查 & 自動安裝的 Python 腳本，會：
+
+讀取本機 Chrome 版本（Windows/macOS/Linux 皆可）
+
+檢查目前 chromedriver 主版號是否一致
+
+若不一致或沒安裝，就到 PyPI 安裝對應版 chromedriver-binary==<精確版本>
+
+驗證安裝成功，並示範如何在 Selenium 內使用
+
+說明：我們直接從 PyPI 的 chromedriver-binary 取對應版本（不是去 Google Storage），並自動挑選「與你 Chrome 主版號一致」的最新子版。
+
+
+
+-----------------------------
+
+腳本：auto_chromedriver_pypi.py
+import json, os, re, subprocess, sys, platform, shutil
+from urllib.request import urlopen
+
+PYPI_PKG = "chromedriver-binary"
+
+def run(cmd, check=False):
+    return subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=check)
+
+def chrome_version():
+    """
+    取得本機 Chrome 版本字串，例如 '128.0.6613.120'
+    盡量以 chrome.exe/Google Chrome --version 為主；Windows 也嘗試登錄機碼。
+    """
+    sysname = platform.system()
+    candidates = []
+
+    if sysname == "Windows":
+        # 1) 直接呼叫 chrome.exe --version（常見安裝路徑）
+        candidates = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+        ]
+        for p in candidates:
+            if os.path.exists(p):
+                out = run([p, "--version"]).stdout.strip()
+                m = re.search(r"(\d+\.\d+\.\d+\.\d+)", out)
+                if m:
+                    return m.group(1)
+        # 2) 退而求其次：登錄機碼（BLBeacon）
+        try:
+            out = run(["reg", "query", r"HKLM\SOFTWARE\Google\Chrome\BLBeacon", "/v", "version"]).stdout
+            m = re.search(r"REG_SZ\s+(\d+\.\d+\.\d+\.\d+)", out)
+            if m:
+                return m.group(1)
+        except Exception:
+            pass
+
+    elif sysname == "Darwin":
+        # macOS
+        candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            os.path.expanduser("~/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"),
+        ]
+        for p in candidates:
+            if os.path.exists(p):
+                out = run([p, "--version"]).stdout.strip()
+                m = re.search(r"(\d+\.\d+\.\d+\.\d+)", out)
+                if m:
+                    return m.group(1)
+
+    else:
+        # Linux
+        for binname in ["google-chrome", "google-chrome-stable", "chromium-browser", "chromium"]:
+            path = shutil.which(binname)
+            if path:
+                out = run([path, "--version"]).stdout.strip()
+                m = re.search(r"(\d+\.\d+\.\d+\.\d+)", out)
+                if m:
+                    return m.group(1)
+
+    raise RuntimeError("找不到本機 Chrome 版本，請確認已安裝且可執行。")
+
+def chromedriver_version():
+    """
+    取得目前 chromedriver 主程式版本（若不存在則回傳 None）
+    """
+    path = shutil.which("chromedriver")
+    if not path:
+        return None
+    out = run([path, "--version"]).stdout
+    m = re.search(r"ChromeDriver\s+(\d+\.\d+\.\d+\.\d+)", out)
+    return m.group(1) if m else None
+
+def pypi_latest_for_major(major: str):
+    """
+    從 PyPI 取得 chromedriver-binary 的所有版本，挑出指定主版號的最新版本字串。
+    例如 major='128' -> '128.0.6613.119.0'
+    """
+    url = f"https://pypi.org/pypi/{PYPI_PKG}/json"
+    with urlopen(url, timeout=15) as resp:
+        data = json.load(resp)
+    # 版本格式常見像 '128.0.6613.119.0'（最後一段是包裝版次）
+    all_versions = list(data["releases"].keys())
+    cand = [v for v in all_versions if v.split(".")[0] == str(major)]
+    if not cand:
+        raise RuntimeError(f"PyPI 上找不到 {PYPI_PKG} 的主版 {major} 對應版本。")
+    # 使用語意排序：依每段整數大小排序
+    def keyf(v):
+        return tuple(int(x) for x in re.findall(r"\d+", v))
+    cand.sort(key=keyf, reverse=True)
+    return cand[0]
+
+def ensure_matching_chromedriver():
+    chrome_ver = chrome_version()
+    chrome_major = chrome_ver.split(".", 1)[0]
+    print(f"[i] 本機 Chrome 版本：{chrome_ver}（主版 {chrome_major}）")
+
+    cdrv_ver = chromedriver_version()
+    if cdrv_ver:
+        cdrv_major = cdrv_ver.split(".", 1)[0]
+        print(f"[i] 目前 chromedriver 版本：{cdrv_ver}（主版 {cdrv_major}）")
+    else:
+        print("[i] 系統找不到 chromedriver（將安裝對應版本）")
+
+    need_install = (cdrv_ver is None) or (cdrv_major != chrome_major)
+
+    if not need_install:
+        print("[✓] 主版一致，無需安裝。")
+        return
+
+    target = pypi_latest_for_major(chrome_major)
+    print(f"[→] 將安裝 PyPI {PYPI_PKG} 版本：{target}（對應 Chrome 主版 {chrome_major}）")
+
+    # 用當前 Python 的 pip 安裝
+    cmd = [sys.executable, "-m", "pip", "install", "-U", f"{PYPI_PKG}=={target}"]
+    print("[…] 執行：", " ".join(cmd))
+    res = run(cmd)
+    print(res.stdout)
+
+    # 匯入 chromedriver_binary 會把對應的 driver 放到 PATH（透過 sitecustomize）
+    try:
+        import chromedriver_binary  # noqa: F401
+    except Exception as e:
+        print("[!] 匯入 chromedriver_binary 失敗：", e)
+
+    # 再次驗證
+    new_ver = chromedriver_version()
+    if not new_ver:
+        raise RuntimeError("安裝後仍找不到 chromedriver，請檢查 pip/環境變數。")
+    new_major = new_ver.split(".", 1)[0]
+    if new_major != chrome_major:
+        raise RuntimeError(f"安裝後主版仍不一致：Chrome {chrome_major} vs chromedriver {new_major}")
+    print(f"[✓] 安裝完成，chromedriver 版本：{new_ver}（主版一致）")
+
+if __name__ == "__main__":
+    ensure_matching_chromedriver()
+    print("\n使用範例（Selenium）：")
+    print(r"""
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+
+# chromedriver-binary 已把正確版本加入 PATH，直接建就行
+driver = webdriver.Chrome()            # 或 webdriver.Chrome(service=Service())
+driver.get("https://www.example.com")
+print(driver.title)
+driver.quit()
+""")
+
+使用方式
+
+儲存成 auto_chromedriver_pypi.py
+
+執行：
+
+python auto_chromedriver_pypi.py
+
+
+看到 [✓] 安裝完成 後，你就可以直接在程式裡 webdriver.Chrome()。
+
+
+----------------------------------------
+
+
+
+
+
+小提醒 / 常見情況
+
+權限/封網：若公司網路無法連到 PyPI，這方法會失敗（可改內部鏡像）。
+
+多個 Python/虛擬環境：請用你實際跑 Selenium 的那個 Python 來執行腳本，確保裝到同一環境。
+
+Edge/Chromium 變體：如果你用的是 Edge，請改用對應套件 msedge-selenium-tools 或 EdgeDriver；這個腳本僅處理 Chrome/Chromedriver。
+
+Selenium Manager（替代做法）：若你升到 selenium>=4.10，也可以不安裝任何 driver，直接 webdriver.Chrome()，Selenium 會自動抓相容 driver（非 PyPI 來源）。你指定「一定要 PyPI」，就用本腳本。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
