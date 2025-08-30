@@ -1,0 +1,224 @@
+# Teams 自動監聽＋自動回覆：詳細流程圖與註解
+
+> 組成：`watcher.py`（監聽端）＋ `sender_server.py`（自動回覆端）＋ `config.yaml`（設定）＋ 日誌 & 啟動/排程腳本。
+
+---
+
+## 1) 系統總覽（元件互動圖）
+
+```mermaid
+flowchart LR
+  subgraph CH[Chrome（已登入 Teams；remote‑debugging 9992）]
+    TW1[Teams Web 分頁 #1]
+    TW2[Teams Web 分頁 #N]
+  end
+
+  CFG[[config.yaml]]
+  W[watcher.py\n(多分頁監聽)]
+  JS[TeamsWatch\nMutationObserver\n(注入 JS)]
+  S[sender_server.py\n(HTTP 伺服器 / 規則引擎)]
+  L1[(logs/watcher_events.ndjson)]
+  L2[(logs/sender_actions.ndjson)]
+  HB[[/health /stats 心跳&統計]]
+  TS[[Windows Task Scheduler\n task_*.xml]]
+  BAT[[start_watcher.bat / start_sender.bat]]
+
+  CFG --> W
+  CFG --> S
+  W -->|開分頁/導向 Deep Link| CH
+  W -.注入.-> JS
+  JS -- 事件(batch) --> W
+  W -->|HTTP POST /event| S
+  W --> L1
+  S -->|鎖定/開分頁| CH
+  S -->|送出文字/圖片| TW1
+  S --> L2
+  S --> HB
+  TS --> BAT
+  BAT --> W
+  BAT --> S
+```
+
+**註解：**
+
+* `watcher.py` 讀取 `config.yaml` 的 `targets`，在 Chrome 中為每個目標開一個 **專用分頁**，注入 `MutationObserver`（稱 *TeamsWatch*）。
+* `TeamsWatch` 只要偵測到 **新訊息 DOM 節點**，就萃取文字/作者/時間，推入佇列讓 `watcher.py` 取走。
+* `watcher.py` 將事件 **附上來源 context**（chatId 或 channelId+groupId+tenantId），批次 POST 給 `sender_server.py`。
+* `sender_server.py` 依 **白名單**＋**規則引擎** 判斷是否回覆，並用 Selenium 控制 **同一個 Chrome** 回到原聊天/頻道送出訊息；同時落地日誌。
+* 啟動/復原：可用 `start_*.bat` 或匯入 `task_*.xml` 讓系統登入後自動啟動，並有失敗自動重啟策略。
+
+---
+
+## 2) 事件生命週期（時序圖）
+
+```mermaid
+sequenceDiagram
+  participant U as 使用者/他人
+  participant Teams as Teams Web UI
+  participant JS as TeamsWatch(MutationObserver)
+  participant W as watcher.py
+  participant S as sender_server.py
+  participant SD as Sender的Selenium
+  participant C as Chrome
+
+  U->>Teams: 在群組/頻道發新訊息
+  Teams-->>JS: DOM 新增訊息節點
+  JS-->>JS: 萃取 sender/text/time/id\n推入 __teamsEvents 佇列
+  W->>JS: TeamsWatch.fetch()
+  JS-->>W: 回傳一批事件
+  W->>W: 過濾 SELF_NAME、加上 context、寫 watcher 日誌
+  W->>S: HTTP POST /event（可批次）
+  S->>S: 白名單檢查 → 規則匹配 → 冷卻時間
+  S->>SD: (鎖) ensure_driver()
+  SD->>C: 開啟相同 chat/channel 視圖
+  SD->>Teams: 找輸入框 → 送出文字/圖片/表格圖
+  Teams-->>JS: DOM 出現新訊息（可能是自己）
+  W->>W: 因 SELF_NAME 過濾「自己」→ 不觸發回聲
+```
+
+---
+
+## 3) watcher.py 子流程（多目標監聽）
+
+```mermaid
+flowchart TD
+  A[啟動 watcher.py] --> B[讀取 config.yaml: watcher.*]
+  B --> C[附著 Chrome(9992) 建立 WebDriver]
+  C --> D{for 目標 target in targets}
+  D -->|每個 target| E[開新分頁→導向 Deep Link(&web=1)]
+  E --> F[注入 TeamsWatch JS]
+  F --> G{週期輪詢}
+  G --> H[TeamsWatch.alive()? 不在→重裝]
+  H --> I[events = TeamsWatch.fetch()]
+  I --> J[附加 context(chatId/ channelId..)]
+  J --> K[過濾 SELF_NAME]
+  K --> L[寫 logs/watcher_events.ndjson]
+  L --> M[POST /event 給 sender]
+  M --> G
+```
+
+**要點：**
+
+* **存活檢查**：容器被 React 重新渲染時，`TeamsWatch` 會失效；定時檢查 `alive()` 並自動 `install()`。
+* **多分頁隔離**：每個 chat/channel 1 個分頁，避免互搶焦點。
+* **事件格式**：加入 `context` 可讓 sender 回到**同一個視圖**回覆。
+
+---
+
+## 4) sender\_server.py 子流程（規則引擎 & 多群路由）
+
+```mermaid
+flowchart TD
+  A[啟動 sender_server.py] --> B[讀取 config.yaml: sender.*, rules]
+  B --> C[啟動 HTTP 伺服器 (/event /health /stats)]
+  C --> D{收到 POST /event}
+  D --> E[逐筆事件處理]
+  E --> F[白名單檢查（chatId/channelId）]
+  F -->|否| X[記錄 skip/deny → 結束]
+  F -->|是| G[依 rules 比對: contains/regex/equals...]
+  G --> H{命中規則?}
+  H -->|否| X
+  H -->|是| I[冷卻時間檢查（rule+scope）]
+  I -->|未過冷卻| X
+  I -->|OK| J[產生回覆動作 action]
+  J --> K[(鎖)]
+  K --> L[ensure_driver()]
+  L --> M{context.kind}
+  M -->|chat| N[open_chat(chatId)]
+  M -->|channel| O[open_channel(channelId, groupId, ...)]
+  N --> P[send_text / send_image / df→png→上傳]
+  O --> P
+  P --> Q[寫 logs/sender_actions.ndjson & 累積統計]
+  Q --> C
+```
+
+**要點：**
+
+* **白名單**：只對允許的聊天/頻道回覆，避免誤觸。
+* **規則**：支援 `contains / startswith / equals / regex`，可加入 `only` 限定來源。
+* **冷卻時間**：以「規則 + 來源(scope)」為單位，避免洗版。
+* **並發安全**：同時多事件到達時以鎖序列化「送訊息」階段，防互搶。
+* **觀測性**：`/health`（活性）、`/stats`（近 1 小時觸發統計）。
+
+---
+
+## 5) 動作分支（回覆型態）
+
+```mermaid
+flowchart LR
+  A[Action] --> B[文字 Text]
+  A --> C[圖片 Image]
+  A --> D[表格圖片 DF→PNG]
+  C --> C1[找到 input[type=file] (含 shadow/iframe)]
+  C1 --> C2[send_keys(path) 上傳]
+  C2 --> C3[可選: caption]
+  D --> D1[用 matplotlib 將 DataFrame 轉成 PNG]
+  D1 --> C1
+```
+
+**註解：**
+
+* 圖片上傳需透過 `<input type=file>`，Selenium `send_keys()` 最穩。
+* Teams 不渲染 `<img>` HTML 注入，因此圖片需走「附件」。
+
+---
+
+## 6) 保活／安全／維運清單
+
+* **存活**：watcher 端 `alive()` 定時重掛；sender 端確保 WebDriver 可用、必要時重新附著。
+* **雙層防回聲**：watcher 與 sender 皆使用 `self_name` 過濾「自己」的發言。
+* **白名單**：`sender.whitelist` 僅允許指定 chat/channel。
+* **日誌輪替**：超過 `rotate_mb` 自動切檔（簡單檔案輪替）。
+* **心跳與統計**：sender 端定時寫入 heartbeat（可選擇 POST 到自家 webhook）；`/stats` 提供規則觸發概況。
+* **啟動/自動重啟**：`start_*.bat` 一鍵啟動；`task_*.xml` 登入自啟、失敗重試 3 次、每次間隔 60 秒。
+
+---
+
+## 7) 事件＆規則資料結構（參考）
+
+**watcher → sender 的事件（精簡）：**
+
+```json
+{
+  "id": "m_ab12cd34",            
+  "sender": "Alice",
+  "text": "報表2025-08-30",
+  "time": "2025-08-30T01:23:45Z",
+  "ts": 1693358625000,
+  "context": {
+    "kind": "chat",             
+    "chatId": "19:...@thread.tacv2",
+    "url": "https://teams.microsoft.com/_#/conversations/..."
+  },
+  "note": "專案群"
+}
+```
+
+**規則（config.yaml / rules 節）例：**
+
+```yaml
+- name: report_date
+  when: { regex: "^報表(\\d{4}-\\d{2}-\\d{2})$" }
+  reply: { text: "已收到報表日期 {g1}，開始處理 ✅" }
+  cooldown_sec: 5
+```
+
+---
+
+## 8) 佈署步驟（快速複核）
+
+1. 以 `--remote-debugging-port=9992` 附著到已登入 Teams 的 Chrome。
+2. 填好 `config.yaml`：`watcher.targets`、`sender.whitelist`、`rules`、`self_name`。
+3. 先啟 `sender_server.py`（看見 `listening on http://.../event`）。
+4. 再啟 `watcher.py`（看到每個目標分頁已打開、`wired`）。
+5. 在群組輸入 `#ping`、`#help`、`#stats` 驗證回覆與統計。
+
+---
+
+## 9) 常見問題（FAQ）
+
+* **為何沒有抓到訊息？** 先在 DevTools 確認訊息容器的 `data-tid` 是否與預設 selectors 相符；必要時在程式中補上你的環境 selector。
+* **為何圖片沒上傳？** 檢查是否能在 DOM 中找到 `<input type="file">`；部分 UI 需先點「📎 附加」才會 mount。
+* **為何變成換行而不是送出？** 企業設定若將 Enter=換行，程式已備援：找「送出」按鈕點擊。
+* **多群組同時觸發會衝突嗎？** sender 以鎖保護送訊息段，且每次會依 `context` 先開到正確視圖再送出。
+* **如何擴充規則？** 可加 `only` 限定來源；也可新增 `image` 或 `df_image` 動作（需啟用 pandas/matplotlib）。

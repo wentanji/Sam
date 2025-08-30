@@ -1,0 +1,4148 @@
+常用 Deep Link 範本
+1) 群組聊天 / 私聊（Chat）
+最穩的兩種作法：
+依「成員 email」開聊（不需 chatId）
+https://teams.microsoft.com/l/chat/0/0?users=user1@yourtenant.com,user2@yourtenant.com&topicName=群組顯示名稱
+users 用逗號分隔多位成員（需要能互相聊天的同租戶/受信任網域）
+可選 topicName= 自訂群組名稱（需 URL encode）
+用既有 chatId（最保險）
+先在 Teams Web 打開該群組聊天，網址常含 19:xxxxxxxx@thread.tacv2
+可用舊格式直接開到該聊天視圖（相容性高）：
+https://teams.microsoft.com/_#/conversations/19:XXXXXXXX@thread.tacv2?ctx=chat
+
+取得 chatId 的小技巧：打開聊天 → 開 DevTools console 輸入 location.href，
+或直接複製網址列；其中那段 19:...@thread.tacv2 就是 chatId。
+
+
+2) 團隊頻道（Channel）
+
+用 Teams 內建「取得連結到頻道」得到的連結（右鍵頻道 → 取得連結到頻道）：
+https://teams.microsoft.com/l/channel/<channelId>/<channelName-URLENCODED>?groupId=<teamId>&tenantId=<tenantId>
+這條官方「頻道連結」最穩，直接 driver.get() 就會打開到該頻道。
+channelName 需 URL encode（Teams 自己給的連結已處理好）。
+
+
+Selenium：用連結直達 + 發訊息
+
+把你原本的附著模式保留，只是把「搜尋聊天」換成「開 Deep Link」。
+以下示範兩個入口函式：open_chat_by_link() 與 open_channel_by_link()。
+
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.keys import Keys
+from urllib.parse import quote
+import time
+
+DEBUGGER_ADDRESS = "127.0.0.1:9992"
+CHROMEDRIVER_PATH = "chromedriver.exe"
+
+def build_driver():
+    opts = webdriver.ChromeOptions()
+    opts.add_experimental_option("debuggerAddress", DEBUGGER_ADDRESS)
+    service = Service(CHROMEDRIVER_PATH)
+    drv = webdriver.Chrome(service=service, options=opts)
+    drv.implicitly_wait(0)
+    return drv
+
+def wait_compose_box(driver, timeout=30):
+    """等待訊息輸入框可用（Chat/Channel 皆通用）。"""
+    # 有時候輸入框在 iframe，先嘗試切
+    driver.switch_to.default_content()
+    frames = driver.find_elements(By.CSS_SELECTOR, "iframe")
+    for f in frames:
+        driver.switch_to.default_content()
+        try:
+            driver.switch_to.frame(f)
+            if driver.find_elements(By.CSS_SELECTOR, "[contenteditable='true'][role='textbox']"):
+                break
+        except Exception:
+            pass
+    # 回主文檔再找一次
+    driver.switch_to.default_content()
+    box = WebDriverWait(driver, timeout).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, "[contenteditable='true'][role='textbox']"))
+    )
+    return box
+
+def send_text(driver, text):
+    compose = wait_compose_box(driver, timeout=40)
+    compose.click()
+    for line in text.split("\n"):
+        compose.send_keys(line)
+        compose.send_keys(Keys.SHIFT, Keys.ENTER)
+    compose.send_keys(Keys.BACK_SPACE)  # 移除最後一個多餘換行
+    compose.send_keys(Keys.ENTER)
+
+def open_chat_by_link(driver, *, users=None, topic_name=None, chat_id=None):
+    """
+    users: 以 email 列表開啟/建立群組聊天（無需 chatId）
+    chat_id: 已知 19:...@thread.tacv2
+    """
+    if chat_id:
+        url = f"https://teams.microsoft.com/_#/conversations/{chat_id}?ctx=chat"
+    elif users:
+        users_param = ",".join(users)
+        url = f"https://teams.microsoft.com/l/chat/0/0?users={users_param}"
+        if topic_name:
+            url += f"&topicName={quote(topic_name)}"
+    else:
+        raise ValueError("需提供 users 或 chat_id 其一")
+    driver.get(url)
+    # 等主畫面與輸入框
+    send_text(driver, "（測試）這是從 Deep Link 直達聊天後發送的訊息 ✅")
+
+def open_channel_by_link(driver, *, channel_id, team_id, tenant_id, channel_name):
+    """
+    直接打開頻道。通常你可以從「取得連結到頻道」複製完整 URL，
+    也可用此函式自行組出來（記得 channel_name 要 URL encode）。
+    """
+    url = (
+        "https://teams.microsoft.com/l/channel/"
+        f"{channel_id}/{quote(channel_name)}"
+        f"?groupId={team_id}&tenantId={tenant_id}"
+    )
+    driver.get(url)
+    # 頻道的訊息輸入框同樣是 contenteditable textbox
+    send_text(driver, "（測試）這是從 Deep Link 直達頻道後發送的訊息 📣")
+
+if __name__ == "__main__":
+    driver = build_driver()
+
+    # ✅ 範例 A：用 email 開啟群組聊天
+    # open_chat_by_link(
+    #     driver,
+    #     users=["alice@yourtenant.com", "bob@yourtenant.com"],
+    #     topic_name="自動化測試群組"
+    # )
+
+    # ✅ 範例 B：用已知 chatId 直開
+    # open_chat_by_link(driver, chat_id="19:xxxxxxxxxxxxxxxx@thread.tacv2")
+
+    # ✅ 範例 C：用頻道 Link 直開
+    # open_channel_by_link(
+    #     driver,
+    #     channel_id="19:yyyyyyyyyyyyyyyy@thread.tacv2",
+    #     team_id="00000000-1111-2222-3333-444444444444",
+    #     tenant_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    #     channel_name="一般"
+    # )
+
+
+
+實務取得參數的方法
+
+頻道（Channel）
+在 Teams 介面 → 右鍵頻道 →「取得連結到頻道」，直接貼出來就是可用的 l/channel/... 連結（裡面含 channelId、groupId、tenantId 與已編碼的 channelName）。
+
+群組聊天（Chat）
+
+無 chatId 的情況：直接用 users=email1,email2,...。
+
+已存在群組聊天且想固定同一個執行緒：先開到該聊天 → 從網址列或 location.href 抓到 19:...@thread.tacv2，傳給 chat_id。
+常見坑位與避免
+
+URL 編碼：channelName、topicName 都要 URL encode（上面用 urllib.parse.quote 了）。
+
+租戶限制：跨租戶/外部來賓可能打不開 users= 聊天；這時就先拿到該聊天的 chatId 最穩。
+
+輸入框在 iframe：程式已做切換嘗試；若你環境還有自訂容器，可能要額外指定 driver.switch_to.frame(...)。
+
+Enter 動作：若貴司把「Enter=換行」，請改為找「傳送」按鈕點擊：
+
+send_btn = WebDriverWait(driver, 10).until(
+    EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label*='傳送'], button[aria-label='Send']"))
+)
+send_btn.click()
+
+
+------------------------------------------------------------------
+
+可以「強制用 Web 版 Teams 開連結，不要跳出桌面 Teams App」。
+Teams Deep Link 預設會檢查系統，如果電腦安裝了 Teams App，通常會先嘗試叫起 App。要避免這種情況有幾個技巧：
+
+方法 1：在 Selenium 直接開 teams.microsoft.com/...
+
+如果你用 Selenium 的 driver.get(url)，它本質就是打開一個網址，瀏覽器不會自動跳去 App。
+所以只要你用的是 https://teams.microsoft.com/l/... 或 https://teams.microsoft.com/_#/... 這種連結，Selenium 一定是在 Chrome 裡跑，不會打開 App。
+（唯獨使用者手動點 Teams 聊天裡的「開啟 App」按鈕，才會觸發。）
+
+方法 2：在網址後面加 &web=1
+
+微軟官方 Deep Link 支援 ?web=1 或 &web=1 參數，會強制使用 Web Teams，即使本機有桌面版 Teams。
+範例：
+
+群組聊天（chatId）：
+https://teams.microsoft.com/_#/conversations/19:XXXXXXXX@thread.tacv2?ctx=chat&web=1
+頻道：
+https://teams.microsoft.com/l/channel/19:YYYYYYYY@thread.tacv2/%E4%B8%80%E8%88%AC?groupId=...&tenantId=...&web=1
+
+只要加上 &web=1，Teams 會固定在瀏覽器打開，不會再提示跳轉 App。
+
+
+方法 3：瀏覽器層級禁止「teams://」協議
+如果環境內 IT 預設還是會跳轉，可以額外在 Chrome 啟動參數加入：
+--disable-features=msEdgeRedirectForTeams
+
+或透過 GPO/系統把 teams:// 協議移除。不過通常方法 2 就夠。
+
+------------------------------------------------------------------------------
+Selenium 範例（強制 Web）
+
+def open_chat_by_link(driver, chat_id):
+    url = f"https://teams.microsoft.com/_#/conversations/{chat_id}?ctx=chat&web=1"
+    driver.get(url)
+    send_text(driver, "（測試）強制 Web Teams 發送 ✅")
+
+def open_channel_by_link(driver, channel_id, team_id, tenant_id, channel_name):
+    from urllib.parse import quote
+    url = (
+        "https://teams.microsoft.com/l/channel/"
+        f"{channel_id}/{quote(channel_name)}"
+        f"?groupId={team_id}&tenantId={tenant_id}&web=1"
+    )
+    driver.get(url)
+    send_text(driver, "（測試）頻道訊息 via Web Teams 📣")
+
+結論：
+你只要在 Teams 連結後加 &web=1，再用 driver.get(url)，Selenium 就會固定用 Chrome 開 Web Teams，不會跑去 Teams App。
+
+
+--------------------------------------------------------------------------------
+
+Web Teams（也就是你現在透過 Selenium 操作的 teams.microsoft.com）裡，「貼上表格或圖片」跟單純文字不一樣，要分情況：
+1. 表格
+Teams 本身沒有原生「表格編輯器」，所以你不能像 Word 一樣直接建立表格。
+常見做法：
+
+從 Excel / Word 複製表格 → 在 Teams 訊息框貼上，會變成「文字排版」（空格 / tab）或「Rich Text 格式」（取決於來源）。
+
+用 Markdown-like 格式（例如 | 欄1 | 欄2 |） → 目前 Web Teams 會當成純文字，不會渲染成表格。
+
+改用圖片：先把表格轉成圖片（例如用 Python 生成 PNG，或截圖），再上傳圖片到 Teams（最穩）。
+
+
+2. 圖片
+
+Web Teams 支援圖片上傳，方式有兩種：
+拖曳檔案 / 貼上圖片
+直接把圖片檔（或剪貼簿圖片）丟進輸入框，會自動上傳成附件。
+但 Selenium 要模擬這個行為，就必須找到檔案上傳 <input type="file">。
+點「迴紋針」上傳按鈕
+在輸入框左下角通常有個「📎（附加檔案）」按鈕，點它會打開 <input type="file">。
+Selenium 可以這樣做：
+upload_input = driver.find_element(By.CSS_SELECTOR, "input[type='file']")
+upload_input.send_keys(r"C:\path\to\your\image.png")
+
+
+3. Selenium 自動化難點
+表格：除非你接受「純文字表格」，否則要先把表格存成圖片再上傳。
+圖片：必須透過 <input type=file> 上傳，不支援 send_keys(Keys.CONTROL, 'v') 這種直接貼圖。
+Rich Text（粗體、斜體、連結）：Web Teams 訊息框是 contenteditable，
+其實可以插入 HTML，但 Selenium 原生只能發字元；若要插 HTML，要用 JavaScript 注入。
+
+
+建議做法（給你 Python Selenium 方向）：
+如果要表格 → 建 PNG → 上傳圖片（最穩）。
+如果要純文字表格 → 用 \t 或 | 拼字串送出。
+圖片上傳 → 找 input[type=file] → send_keys(檔案路徑)。
+
+
+
+
+「把 pandas DataFrame 轉成 PNG 圖片 → 透過 Selenium 上傳到 Web Teams（強制 web）→ 送出訊息」的完整範例。
+你只要改幾個參數（chat_id 或 channel link 參數、以及你的檔案路徑/訊息），就能直接用。
+
+功能說明
+
+df_to_png()：把 pandas.DataFrame 渲染成清晰的 PNG（用 matplotlib，不需額外套件）。
+
+open_chat_by_link() / open_channel_by_link()：用 Teams Deep Link 直接開到聊天或頻道（帶 &web=1 強制在瀏覽器）。
+
+upload_image_and_send()：找到隱藏的 <input type="file"> 上傳圖片，等待預覽載入後送出訊息。
+
+已經考慮多國語系與多種 DOM 版本，提供多組 selector 候選；也處理了可能的 iframe。
+
+你已經是用 --remote-debugging-port=9992 的方式附著 Chrome，下例沿用同樣做法。
+
+
+import os
+import io
+import time
+from urllib.parse import quote
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+# ====== 你的環境設定 ======
+DEBUGGER_ADDRESS = "127.0.0.1:9992"   # 你現有 Chrome 的 remote debugging port
+CHROMEDRIVER_PATH = "chromedriver.exe"  # 視你的環境修正
+
+# 目標：擇一使用（兩種都示範；實際用時留一個）
+CHAT_ID = "19:xxxxxxxxxxxxxxxx@thread.tacv2"  # 已存在的群組/私聊 ID（建議）
+# 或者用 Channel Link 的 3 個參數（從「取得連結到頻道」可拿到）
+CHANNEL_ID = "19:yyyyyyyyyyyyyyyy@thread.tacv2"
+TEAM_ID = "00000000-1111-2222-3333-444444444444"
+TENANT_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+CHANNEL_NAME = "一般"  # 會做 URL encode
+
+# ====== 範例 DataFrame（你可以換成你的分析結果）======
+def sample_dataframe():
+    return pd.DataFrame({
+        "產品": ["A", "B", "C", "D"],
+        "本月銷量": [120, 95, 143, 88],
+        "退貨率": [0.8, 1.2, 0.5, 1.0],
+        "備註": ["穩定", "略降", "成長", "觀察"]
+    })
+
+# ====== 把 DataFrame 轉成 PNG 圖片 ======
+def df_to_png(df: pd.DataFrame, save_path: str, title: str = None, dpi: int = 200):
+    """
+    用 matplotlib 把 DataFrame 渲染成表格圖片（無需 dataframe-image 套件）。
+    """
+    # 動態計算圖尺寸（避免字太擠）：每列固定高度、寬度依欄位數估
+    n_rows, n_cols = df.shape
+    cell_h = 0.6
+    cell_w = 2.2
+    title_h = 0.6 if title else 0.2
+    fig_w = max(6, n_cols * cell_w)
+    fig_h = max(2.5, n_rows * cell_h + title_h)
+
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=dpi)
+    ax.axis("off")
+
+    # 建表格
+    table = ax.table(cellText=df.values,
+                     colLabels=df.columns,
+                     loc='center',
+                     cellLoc='center',
+                     colLoc='center')
+
+    # 美化：字體大小、欄寬、表頭加粗
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1, 1.25)
+
+    # 表頭粗體 + 灰底
+    for (row, col), cell in table.get_celld().items():
+        if row == 0:
+            cell.set_text_props(weight='bold')
+            cell.set_facecolor("#f0f0f0")
+        # 邊框淡一點
+        cell.set_edgecolor("#cccccc")
+
+    # 標題
+    if title:
+        ax.set_title(title, pad=10, fontsize=14, fontweight='bold')
+
+    # 儲存
+    os.makedirs(os.path.dirname(save_path), exist_ok=True) if os.path.dirname(save_path) else None
+    plt.tight_layout()
+    plt.savefig(save_path, bbox_inches='tight', dpi=dpi)
+    plt.close(fig)
+    return save_path
+
+# ====== Selenium 基本建置 ======
+def build_driver():
+    opts = webdriver.ChromeOptions()
+    opts.add_experimental_option("debuggerAddress", DEBUGGER_ADDRESS)
+    service = Service(CHROMEDRIVER_PATH)
+    driver = webdriver.Chrome(service=service, options=opts)
+    driver.implicitly_wait(0)
+    return driver
+
+def wait_any(driver, candidates, timeout=30, clickable=False):
+    w = WebDriverWait(driver, timeout)
+    last_err = None
+    for by, sel in candidates:
+        try:
+            if clickable:
+                return w.until(EC.element_to_be_clickable((by, sel)))
+            else:
+                return w.until(EC.presence_of_element_located((by, sel)))
+        except Exception as e:
+            last_err = e
+    raise last_err
+
+def ensure_web_teams_open(driver):
+    if "teams.microsoft.com" not in driver.current_url:
+        driver.get("https://teams.microsoft.com/_?web=1")
+
+# ====== 直達聊天 / 頻道（強制 web=1）======
+def open_chat_by_link(driver, chat_id: str):
+    url = f"https://teams.microsoft.com/_#/conversations/{chat_id}?ctx=chat&web=1"
+    driver.get(url)
+    # 等待聊天輸入框出現
+    wait_compose_box(driver, timeout=60)
+
+def open_channel_by_link(driver, channel_id: str, team_id: str, tenant_id: str, channel_name: str):
+    url = (
+        "https://teams.microsoft.com/l/channel/"
+        f"{channel_id}/{quote(channel_name)}"
+        f"?groupId={team_id}&tenantId={tenant_id}&web=1"
+    )
+    driver.get(url)
+    wait_compose_box(driver, timeout=60)
+
+# ====== 找到輸入框（考慮 iframe）======
+def wait_compose_box(driver, timeout=40):
+    driver.switch_to.default_content()
+    # 有時候輸入框在 iframe，逐一嘗試切入
+    iframes = driver.find_elements(By.CSS_SELECTOR, "iframe")
+    for f in iframes:
+        driver.switch_to.default_content()
+        try:
+            driver.switch_to.frame(f)
+            if driver.find_elements(By.CSS_SELECTOR, "[contenteditable='true'][role='textbox']"):
+                break
+        except Exception:
+            pass
+    # 回主文檔再找一次
+    driver.switch_to.default_content()
+    box = WebDriverWait(driver, timeout).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, "[contenteditable='true'][role='textbox']"))
+    )
+    return box
+
+# ====== 上傳圖片並送出 ======
+def upload_image_and_send(driver, file_path: str, caption: str = None):
+    """
+    1) 尋找檔案上傳 input[type=file]
+    2) send_keys(file_path) 觸發上傳
+    3) 等預覽完成後，輸入（可選）說明文字
+    4) 送出
+    """
+    driver.switch_to.default_content()
+
+    # 先試著點「附加/上傳」按鈕（有些版本需要點一下才會把 input mount 到 DOM）
+    try:
+        attach_btn = wait_any(driver, [
+            (By.CSS_SELECTOR, "button[aria-label*='附加'], button[aria-label*='檔案'], button[aria-label='Attach']"),
+            (By.CSS_SELECTOR, "button[title*='附加'], button[title='Attach']"),
+            (By.CSS_SELECTOR, "[data-tid*='attach'], [data-tid*='file-upload']"),
+        ], timeout=5, clickable=True)
+        attach_btn.click()
+        time.sleep(0.5)
+    except Exception:
+        pass  # 找不到也沒關係，下面會直接找 input[type=file]
+
+    # 找所有可用的 <input type=file>，通常其中一個是我們要的
+    inputs = driver.find_elements(By.CSS_SELECTOR, "input[type='file']")
+    if not inputs:
+        # 有些情況 input 在 shadow host/iframe 裡；再掃一次 iframe
+        iframes = driver.find_elements(By.CSS_SELECTOR, "iframe")
+        for f in iframes:
+            driver.switch_to.default_content()
+            try:
+                driver.switch_to.frame(f)
+                inputs = driver.find_elements(By.CSS_SELECTOR, "input[type='file']")
+                if inputs:
+                    break
+            except Exception:
+                pass
+        driver.switch_to.default_content()
+
+    if not inputs:
+        raise RuntimeError("找不到 input[type=file]，請在你的環境用 DevTools 確認實際 selector 或先點一次『附加檔案』。")
+
+    # 嘗試對所有 file input 執行 send_keys，有的被 hidden 也能成功
+    uploaded = False
+    for inp in inputs:
+        try:
+            inp.send_keys(os.path.abspath(file_path))
+            uploaded = True
+            break
+        except Exception:
+            continue
+
+    if not uploaded:
+        raise RuntimeError("send_keys 到 input[type=file] 失敗，可能被阻擋或在 shadow DOM，請回報實際 DOM 結構調整。")
+
+    # 等待上傳預覽出現（各版本不同，提供多組候選）
+    try:
+        wait_any(driver, [
+            (By.CSS_SELECTOR, "[data-tid*='filePreview'], [data-tid*='attachment'], [data-tid*='imagePreview']"),
+            (By.CSS_SELECTOR, "img[alt*='預覽'], img[alt*='preview']"),
+            (By.CSS_SELECTOR, "[role='listitem'] img, [data-tid*='attachment'] [role='img']"),
+        ], timeout=30)
+    except Exception:
+        # 有些網路較慢，再緩一下
+        time.sleep(1)
+
+    # 輸入說明文字（可選）
+    if caption:
+        compose = wait_compose_box(driver, timeout=30)
+        compose.click()
+        for line in caption.split("\n"):
+            compose.send_keys(line)
+            compose.send_keys(Keys.SHIFT, Keys.ENTER)
+        compose.send_keys(Keys.BACK_SPACE)
+
+    # 送出（若你的租戶把 Enter=換行，請改為點送出按鈕）
+    try:
+        compose = wait_compose_box(driver, timeout=10)
+        compose.send_keys(Keys.ENTER)
+    except Exception:
+        # 改用送出按鈕
+        send_btn = wait_any(driver, [
+            (By.CSS_SELECTOR, "button[aria-label='Send']"),
+            (By.CSS_SELECTOR, "button[aria-label*='傳送'], button[aria-label*='發送']"),
+        ], timeout=10, clickable=True)
+        send_btn.click()
+
+    # 簡單確認訊息已出現
+    WebDriverWait(driver, 20).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, "[data-tid*='messageContent'], .chat-message-container"))
+    )
+
+# ====== 主流程示範 ======
+def main():
+    # 1) 先把 DataFrame 存成 PNG
+    df = sample_dataframe()
+    out_png = "teams_out/table_report.png"
+    df_to_png(df, out_png, title="本月銷售報表")
+
+    # 2) 附著到現有 Chrome
+    driver = build_driver()
+    ensure_web_teams_open(driver)
+
+    # 3) 直達聊天 或 頻道（二擇一）
+    if CHAT_ID:
+        open_chat_by_link(driver, CHAT_ID)
+    else:
+        open_channel_by_link(driver, CHANNEL_ID, TEAM_ID, TENANT_ID, CHANNEL_NAME)
+
+    # 4) 上傳圖片 + 可選說明文字 → 送出
+    upload_image_and_send(driver, out_png, caption="以下為自動產出的表格快照（Web Teams 測試）📊")
+
+if __name__ == "__main__":
+    main()
+
+
+使用說明與小貼士
+
+強制 Web：Deep Link 已加 &web=1，不會跳桌面 App。
+
+chatId 取得：在該聊天頁 location.href 裡有 19:...@thread.tacv2；或直接複製網址列。
+
+頻道參數：從 Teams 的「取得連結到頻道」複製即可（裡面就含 channelId / groupId / tenantId），把 channelName 用原樣給函式即可，程式會 URL-encode。
+
+找不到 input[type=file]?
+
+先手動點一次「📎 附加」看看 DOM 是否出現 <input type=file>。
+
+開 DevTools 用 $$('input[type=file]') 檢查實際位置；若在 Shadow DOM，就要改用 JS 取出或改 selector。
+
+Enter=換行 的租戶：請把送出改為找「送出」按鈕點擊（程式已備用）。
+
+表格太寬/太長：調整 cell_w/cell_h 或 dpi；或拆成多張圖。
+
+想「貼上」圖片：瀏覽器端貼圖需要 Clipboard API 與 user gesture，Selenium 難度較高；用 <input type=file> 最穩。
+
+-----------------------------------------------------------------------------------------------------
+
+
+
+
+如果要插 HTML，要用 JavaScript 注入,請提供方法
+
+
+可以！思路是「先鎖定訊息輸入框（contenteditable），再用 execute_script 在瀏覽器端把 HTML 插入」，
+最後觸發 input 事件讓 Teams 接收到變更。下面給你可直接用的範例（含 iframe 掃描與 &web=1 強制 Web 版）。
+
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from urllib.parse import quote
+import time
+
+DEBUGGER_ADDRESS = "127.0.0.1:9992"
+CHROMEDRIVER_PATH = "chromedriver.exe"
+CHAT_ID = "19:xxxxxxxxxxxxxxxx@thread.tacv2"  # 改成你的 chatId
+
+def build_driver():
+    opts = webdriver.ChromeOptions()
+    opts.add_experimental_option("debuggerAddress", DEBUGGER_ADDRESS)
+    service = Service(CHROMEDRIVER_PATH)
+    drv = webdriver.Chrome(service=service, options=opts)
+    drv.implicitly_wait(0)
+    return drv
+
+def open_chat_by_link(driver, chat_id):
+    url = f"https://teams.microsoft.com/_#/conversations/{chat_id}?ctx=chat&web=1"
+    driver.get(url)
+
+def locate_compose_el(driver, timeout=40):
+    """嘗試在主文件與所有 iframe 中找 contenteditable 輸入框。"""
+    end = time.time() + timeout
+    tried_iframes = set()
+
+    while time.time() < end:
+        # 先看主文檔
+        driver.switch_to.default_content()
+        els = driver.find_elements(By.CSS_SELECTOR, "[contenteditable='true'][role='textbox']")
+        if els:
+            return els[0]
+
+        # 掃描 iframe
+        iframes = driver.find_elements(By.CSS_SELECTOR, "iframe")
+        for idx, f in enumerate(iframes):
+            if f.id in tried_iframes:
+                continue
+            tried_iframes.add(f.id)
+            try:
+                driver.switch_to.default_content()
+                driver.switch_to.frame(f)
+                els = driver.find_elements(By.CSS_SELECTOR, "[contenteditable='true'][role='textbox']")
+                if els:
+                    return els[0]
+            except Exception:
+                continue
+
+        time.sleep(0.3)
+
+    raise RuntimeError("找不到 Teams 訊息輸入框（contenteditable role=textbox）。")
+
+def js_insert_html(driver, compose_el, html, replace=True):
+    """
+    用 JS 把 HTML 插入到輸入框中：
+      - replace=True：清空後整段插入
+      - replace=False：在游標處/尾端插入
+    會同時派送 input/change 事件，讓 React/Teams 接收到更新。
+    """
+    script = r"""
+(function(el, html, replace){
+  try {
+    el.focus();
+
+    // 選取/定位游標
+    const sel = window.getSelection();
+    const range = document.createRange();
+
+    if (replace) {
+      // 清空內容
+      while (el.firstChild) el.removeChild(el.firstChild);
+      range.selectNodeContents(el);
+      range.collapse(true);  // 從開頭插入
+    } else {
+      // 置於結尾插入（也可改成選取處插入）
+      range.selectNodeContents(el);
+      range.collapse(false);
+    }
+
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    // 優先用 execCommand（跨瀏覽器對 contenteditable 支援性仍不錯）
+    let ok = false;
+    try {
+      ok = document.execCommand('insertHTML', false, html);
+    } catch(e) {}
+
+    if (!ok) {
+      // fallback：用 Range + contextualFragment
+      const frag = range.createContextualFragment(html);
+      range.deleteContents();
+      range.insertNode(frag);
+      // 在尾端補一個 <br> 讓游標位置正常
+      el.appendChild(document.createElement('br'));
+    }
+
+    // 觸發輸入事件，通知 React/Teams 狀態已變
+    el.dispatchEvent(new InputEvent('input', {bubbles:true}));
+    el.dispatchEvent(new Event('change', {bubbles:true}));
+
+    return true;
+  } catch (err) {
+    return String(err);
+  }
+})(arguments[0], arguments[1], arguments[2]);
+"""
+    res = driver.execute_script(script, compose_el, html, replace)
+    if res is not True:
+        raise RuntimeError(f"JS 插入失敗：{res}")
+
+def send_message(driver, compose_el):
+    """送出訊息（若你的租戶 Enter=換行，請改為找送出按鈕點擊）。"""
+    try:
+        compose_el.send_keys(Keys.ENTER)
+    except Exception:
+        driver.switch_to.default_content()
+        btn = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Send'], button[aria-label*='傳送'], button[aria-label*='發送']"))
+        )
+        btn.click()
+
+def main():
+    driver = build_driver()
+    open_chat_by_link(driver, CHAT_ID)
+    # 等頁面載入主要區塊
+    WebDriverWait(driver, 60).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, "[data-tid*='app-bar'], [aria-label*='聊天'], [aria-label='Chat']"))
+    )
+
+    compose = locate_compose_el(driver)
+
+    # 你要注入的 HTML（Teams 會有淨化，見下方注意事項）
+    html = """
+      <p><strong>週報</strong> — 2025/08/30</p>
+      <ul>
+        <li>後端部署完成（<code>v1.8.2</code>）。</li>
+        <li>品質指標：<em>99.95% SLA</em>、延遲 P95 180ms。</li>
+      </ul>
+      <p>詳情：<a href="https://example.com/report" target="_blank">專案頁面</a></p>
+      <blockquote>備註：下週鎖定 API 限流策略。</blockquote>
+    """
+
+    js_insert_html(driver, compose, html, replace=True)
+    time.sleep(0.5)  # 視網路情況給點緩衝
+    send_message(driver, compose)
+
+if __name__ == "__main__":
+    main()
+
+
+
+重點與注意
+
+允許的 HTML 會被 Teams 端淨化（sanitize），常見可保留的有：<p> <br> <strong> <em> <u> <s> <code> <pre> <ul> <ol> <li> <blockquote> <a>。
+內聯樣式（style="color:red"）、多數表格/複雜標籤、<img> 等通常會被移除或改寫；圖片請走檔案上傳的方式。
+
+若你的租戶把「Enter = 換行」，請把 send_message() 改成點擊「送出」按鈕（上面已備好 selector）。
+
+有時輸入框在嵌套 iframe 裡，locate_compose_el() 已會逐一嘗試；若你遇到 Shadow DOM，需要改用 JS 穿透 Shadow root 取得元素（可再補給你）。
+
+如果你想在游標處插入而非整段取代，把 replace=False，或是把 range.collapse(false) 改成用現有 selection 的 getRangeAt(0) 再 insertHTML。
+
+
+-----------------------------------------------------------------------------------------------------------
+
+再補一版「Shadow DOM 版本」或「把 HTML 與上傳圖片混合（圖文並茂）」的範例
+
+太好了—這裡直接給你兩套可用的範例：
+
+Shadow DOM 版：能在開放（open）Shadow DOM / iframe 中找到訊息輸入框，並「用 JS 注入 HTML」。
+
+圖文並茂版：先注入 HTML，再上傳圖片（經 input[type=file]），最後送出。
+
+小提醒：Teams 會淨化 HTML（允許 <p><br><strong><em><code><pre><ul><ol><li><blockquote><a> 等），<img> 會被移除；要顯示圖片請用「上傳檔案」的方式（如下示範）。
+
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import time
+
+DEBUGGER_ADDRESS = "127.0.0.1:9992"
+CHROMEDRIVER_PATH = "chromedriver.exe"
+CHAT_ID = "19:xxxxxxxxxxxxxxxx@thread.tacv2"  # 換成你的 chatId
+
+def build_driver():
+    opts = webdriver.ChromeOptions()
+    opts.add_experimental_option("debuggerAddress", DEBUGGER_ADDRESS)
+    service = Service(CHROMEDRIVER_PATH)
+    drv = webdriver.Chrome(service=service, options=opts)
+    drv.implicitly_wait(0)
+    return drv
+
+def open_chat_by_link(driver, chat_id):
+    driver.get(f"https://teams.microsoft.com/_#/conversations/{chat_id}?ctx=chat&web=1")
+
+def query_selector_deep(driver, selector):
+    """
+    在主文件 + 所有 iframe 中，用 open shadowRoot 深度查找第一個匹配元素。
+    selector 支援 '>>>’ 鏈式語法（每段為一層 shadowHost 內的 selector）。
+    例： "mgt-person >>> div.person-container >>> button"
+    """
+    js = r"""
+const sel = arguments[0];
+function splitSel(s){ return s.split(/\s*>>>\s*/); }
+function findDeep(root, parts){
+  let nodes = [root];
+  for (const part of parts){
+    const found = [];
+    for (const n of nodes){
+      // 在當前根內查找
+      found.push(...n.querySelectorAll(part));
+      // 若節點有 open shadow root，納入其 shadowRoot 作為下輪搜索根
+      const it = n.querySelectorAll('*');
+      for (const el of it){
+        if (el.shadowRoot) found.push(...el.shadowRoot.querySelectorAll(part));
+      }
+      if (n.shadowRoot) found.push(...n.shadowRoot.querySelectorAll(part));
+    }
+    if (!found.length) return null;
+    nodes = found;
+  }
+  return nodes[0] || null;
+}
+const parts = splitSel(sel);
+let el = findDeep(document, parts);
+if (!el){
+  // 再掃一輪所有 iframe
+  const iframes = Array.from(document.querySelectorAll('iframe'));
+  for (const f of iframes){
+    try{
+      const doc = f.contentDocument || f.contentWindow?.document;
+      if (!doc) continue;
+      el = findDeep(doc, parts);
+      if (el) break;
+    }catch(e){}
+  }
+}
+return el;
+"""
+    return driver.execute_script(js, selector)
+
+def locate_compose_box_deep(driver, timeout=40):
+    end = time.time() + timeout
+    while time.time() < end:
+        el = query_selector_deep(driver, "[contenteditable='true'][role='textbox']")
+        if el:
+            return el
+        time.sleep(0.3)
+    raise RuntimeError("找不到輸入框（含 Shadow DOM/iframe 掃描）。")
+
+def js_insert_html(driver, compose_el, html, replace=True):
+    script = r"""
+(function(el, html, replace){
+  try{
+    el.focus();
+    const sel = window.getSelection();
+    const range = document.createRange();
+
+    if (replace){
+      while (el.firstChild) el.removeChild(el.firstChild);
+      range.selectNodeContents(el);
+      range.collapse(true);
+    }else{
+      // 置於尾端
+      range.selectNodeContents(el);
+      range.collapse(false);
+    }
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    let ok=false;
+    try{ ok = document.execCommand('insertHTML', false, html); }catch(e){}
+    if (!ok){
+      const frag = range.createContextualFragment(html);
+      range.deleteContents();
+      range.insertNode(frag);
+      el.appendChild(document.createElement('br'));
+    }
+    el.dispatchEvent(new InputEvent('input', {bubbles:true}));
+    el.dispatchEvent(new Event('change', {bubbles:true}));
+    return true;
+  }catch(err){ return String(err); }
+})(arguments[0], arguments[1], arguments[2]);
+"""
+    res = driver.execute_script(script, compose_el, html, replace)
+    if res is not True:
+        raise RuntimeError(f"JS 插入失敗：{res}")
+
+def send_message(driver, compose_el):
+    try:
+        compose_el.send_keys(Keys.ENTER)
+    except Exception:
+        driver.switch_to.default_content()
+        btn = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Send'], button[aria-label*='傳送'], button[aria-label*='發送']"))
+        )
+        btn.click()
+
+def demo_shadow_dom_html():
+    driver = build_driver()
+    open_chat_by_link(driver, CHAT_ID)
+    WebDriverWait(driver, 60).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, "[data-tid*='app-bar'], [aria-label*='聊天'], [aria-label='Chat']"))
+    )
+    compose = locate_compose_box_deep(driver)
+
+    html = """
+      <p><strong>圖檔即將上傳前的說明</strong></p>
+      <ul>
+        <li>本週進度 80%，預計下週完成驗收。</li>
+        <li>延遲 P95：<code>180ms</code>；錯誤率：<em>0.2%</em></li>
+      </ul>
+    """
+    js_insert_html(driver, compose, html, replace=True)
+    time.sleep(0.5)
+    send_message(driver, compose)
+
+if __name__ == "__main__":
+    demo_shadow_dom_html()
+
+
+-----------------------------------------------------
+
+2) 圖文並茂版：先注入 HTML，再透過 Shadow DOM 深找 <input type="file"> 上傳圖片
+
+import os, time
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+DEBUGGER_ADDRESS = "127.0.0.1:9992"
+CHROMEDRIVER_PATH = "chromedriver.exe"
+CHAT_ID = "19:xxxxxxxxxxxxxxxx@thread.tacv2"
+IMAGE_PATH = r"C:\path\to\report.png"  # 換成你的圖片路徑
+
+# === 同上：build_driver / open_chat_by_link / query_selector_deep / locate_compose_box_deep / js_insert_html / send_message ===
+# 你可以從上一段複製這些函式，這裡只放與「上傳檔案」相關的部分
+
+def query_selector_all_deep(driver, selector):
+    js = r"""
+const sel = arguments[0];
+function splitSel(s){ return s.split(/\s*>>>\s*/); }
+function findAllDeep(root, parts){
+  let roots = [root];
+  for (const part of parts){
+    const next = [];
+    for (const r of roots){
+      next.push(...r.querySelectorAll(part));
+      const it = r.querySelectorAll('*');
+      for (const el of it){
+        if (el.shadowRoot) next.push(...el.shadowRoot.querySelectorAll(part));
+      }
+      if (r.shadowRoot) next.push(...r.shadowRoot.querySelectorAll(part));
+    }
+    roots = next;
+  }
+  return roots;
+}
+const parts = splitSel(sel);
+let out = findAllDeep(document, parts);
+if (!out.length){
+  const iframes = Array.from(document.querySelectorAll('iframe'));
+  for (const f of iframes){
+    try{
+      const doc = f.contentDocument || f.contentWindow?.document;
+      if (!doc) continue;
+      out = findAllDeep(doc, parts);
+      if (out.length) break;
+    }catch(e){}
+  }
+}
+return out;
+"""
+    return driver.execute_script(js, selector)
+
+def click_attach_if_needed(driver):
+    # 有些版本要先點「附加/檔案」才會把 <input type=file> mount 進 DOM
+    try:
+        btn = WebDriverWait(driver, 5).until(EC.element_to_be_clickable((
+            By.CSS_SELECTOR,
+            "button[aria-label*='附加'], button[aria-label*='檔案'], button[aria-label='Attach'], [data-tid*='attach']"
+        )))
+        btn.click()
+        time.sleep(0.4)
+    except Exception:
+        pass
+
+def upload_file_deep(driver, file_path):
+    # 先嘗試顯式掛載
+    click_attach_if_needed(driver)
+
+    # 深度尋找所有可用的 file input（包含 shadow/iframe）
+    inputs = query_selector_all_deep(driver, "input[type='file']")
+    if not inputs:
+        raise RuntimeError("找不到 input[type=file]（含 Shadow DOM/iframe）。請先手動點一次『附加檔案』觀察 DOM。")
+
+    abs_path = os.path.abspath(file_path)
+    uploaded = False
+    last_err = None
+    for inp in inputs:
+        try:
+            inp.send_keys(abs_path)
+            uploaded = True
+            break
+        except Exception as e:
+            last_err = e
+            continue
+    if not uploaded:
+        raise RuntimeError(f"send_keys 失敗，可能被遮罩或不在可見樹：{last_err}")
+
+def wait_preview_ready(driver, timeout=30):
+    # 嘗試等到附件預覽出現（多種候選）
+    end = time.time() + timeout
+    while time.time() < end:
+        found = False
+        for sel in [
+            "[data-tid*='filePreview']", "[data-tid*='attachment']", "[data-tid*='imagePreview']",
+            "img[alt*='預覽']", "img[alt*='preview']",
+            "[role='listitem'] img", "[data-tid*='attachment'] [role='img']"
+        ]:
+            el = query_selector_deep(driver, sel)
+            if el:
+                found = True
+                break
+        if found:
+            return
+        time.sleep(0.4)
+    # 不致命：有些租戶不顯示縮圖，但上傳仍成功
+    return
+
+def demo_mixed_html_plus_image():
+    # ===== 這裡把上一段的工具函式貼上或 import =====
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+
+    def build_driver():
+        opts = webdriver.ChromeOptions()
+        opts.add_experimental_option("debuggerAddress", DEBUGGER_ADDRESS)
+        service = Service(CHROMEDRIVER_PATH)
+        drv = webdriver.Chrome(service=service, options=opts)
+        drv.implicitly_wait(0)
+        return drv
+
+    def open_chat_by_link(driver, chat_id):
+        driver.get(f"https://teams.microsoft.com/_#/conversations/{chat_id}?ctx=chat&web=1")
+
+    driver = build_driver()
+    open_chat_by_link(driver, CHAT_ID)
+    WebDriverWait(driver, 60).until(
+        EC.presence_of_element_located((By.CSS_SELECTOR, "[data-tid*='app-bar'], [aria-label*='聊天'], [aria-label='Chat']"))
+    )
+
+    # 先插入 HTML（說明文字）
+    compose = locate_compose_box_deep(driver)
+    html = """
+      <p><strong>週報（含圖）</strong></p>
+      <p>下方附上最新趨勢圖，細節見附件與專案頁。</p>
+    """
+    js_insert_html(driver, compose, html, replace=True)
+
+    # 上傳圖片（會顯示為訊息內附件/縮圖）
+    upload_file_deep(driver, IMAGE_PATH)
+    wait_preview_ready(driver, timeout=30)
+
+    # 可再補充一些純文字說明
+    try:
+        compose = locate_compose_box_deep(driver)
+        compose.send_keys("（自動上傳）KPI 趨勢圖，供參。")
+    except Exception:
+        pass
+
+    # 送出
+    try:
+        compose = locate_compose_box_deep(driver)
+        compose.send_keys(Keys.ENTER)
+    except Exception:
+        # 若 Enter=換行，改按送出
+        btn = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Send'], button[aria-label*='傳送'], button[aria-label*='發送']"))
+        )
+        btn.click()
+
+if __name__ == "__main__":
+    demo_mixed_html_plus_image()
+
+--------------------------------------------------------------------------
+
+實戰備註
+
+閉合（closed）Shadow DOM：以上方法只適用 open shadow roots。若某元件使用 closed，瀏覽器端腳本無法穿透；可改以模擬點擊 UI 流程（讓它把 <input type=file> mount 出來），或走 CDP（部分情境可穿透 UA shadow，但非所有 closed 都能取到）。
+
+Enter=換行 的租戶：改成找「送出」按鈕點擊即可。
+
+上傳檔案被擋：某些租戶會限制僅能從「雲端位置」選檔，這時仍可找得到 input[type=file]；若完全沒有 file input，代表 UI 走自訂檔選器，必須改成點擊路徑或改走 Graph API 上傳（需應用權限）。
+
+穩定度：Teams DOM 會變更；保留多組 selector 候選、加上重試/等待，是長期穩定的關鍵。
+
+
+----------------------------------------------------------------------------
+
+確認,我所連結的群組跟我輸入框所送出的內容是相同群組
+
+
+以，做法是「在送出前做 2~3 層『情境驗證』」：
+
+用 location.href 解析出目前頁面的 chatId / channelId / groupId / tenantId，
+
+再讀取頁面標頭的聊天室/頻道名稱（header title），
+
+全部與你預期的目標做比對，若不一致就不要送出。
+
+下面給你一套可直接用的防呆版：支援聊天(chat)與頻道(channel)，多語系、多版本 selector 已內建。
+
+
+
+import re, time
+from urllib.parse import urlparse, parse_qs, unquote
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+DEBUGGER_ADDRESS = "127.0.0.1:9992"
+CHROMEDRIVER_PATH = "chromedriver.exe"
+
+def build_driver():
+    opts = webdriver.ChromeOptions()
+    opts.add_experimental_option("debuggerAddress", DEBUGGER_ADDRESS)
+    service = Service(CHROMEDRIVER_PATH)
+    drv = webdriver.Chrome(service=service, options=opts)
+    drv.implicitly_wait(0)
+    return drv
+
+# ----- 直達（強制 web=1） -----
+def open_chat_by_id(driver, chat_id):
+    driver.get(f"https://teams.microsoft.com/_#/conversations/{chat_id}?ctx=chat&web=1")
+
+def open_channel_by_link(driver, channel_id, group_id, tenant_id, channel_name):
+    from urllib.parse import quote
+    url = ("https://teams.microsoft.com/l/channel/"
+           f"{channel_id}/{quote(channel_name)}"
+           f"?groupId={group_id}&tenantId={tenant_id}&web=1")
+    driver.get(url)
+
+# ----- 抽取目前路由資訊 -----
+def get_route_info(driver):
+    """回傳 dict: kind=('chat'|'channel'|'unknown'), chatId / channelId / groupId / tenantId, url"""
+    href = driver.execute_script("return location.href")
+    info = {"kind":"unknown", "url":href}
+
+    # chat: .../_#/conversations/19:xxx@thread.tacv2?ctx=chat
+    m = re.search(r"/conversations/(19:[^/?#]+@thread\.tacv2)", href)
+    if m:
+        info.update({"kind":"chat", "chatId": m.group(1)})
+        return info
+
+    # channel: .../l/channel/<channelId>/<name>?groupId=...&tenantId=...
+    if "/l/channel/" in href:
+        try:
+            p = urlparse(href)
+            q = parse_qs(p.query)
+            parts = p.path.split("/l/channel/",1)[1].split("/",1)
+            channel_id = parts[0]
+            info.update({
+                "kind":"channel",
+                "channelId": channel_id,
+                "groupId": q.get("groupId",[None])[0],
+                "tenantId": q.get("tenantId",[None])[0],
+                "channelName": unquote(parts[1].split("?")[0]) if len(parts)>1 else None
+            })
+            return info
+        except Exception:
+            pass
+
+    return info
+
+# ----- 讀取標頭標題（聊天室/頻道名稱） -----
+def read_header_title(driver, timeout=30):
+    """
+    嘗試在多種容器（含可能的 iframe）裡找 header 的 heading 文字。
+    """
+    end = time.time() + timeout
+    js = r"""
+const candidates = [
+  // 常見 header 容器
+  "[data-tid*='chatHeader']",
+  "[data-tid*='channelHeader']",
+  "[aria-label='Chat']",
+  "[aria-label*='聊天']",
+  "[role='banner']",
+  "[data-tid*='header']",
+  // 退而求其次：上方任何工具列容器
+  ".ts-left-rail+div, [data-tid='topHeader']"
+];
+const headSel = "h1, h2, [role='heading']";
+function findIn(doc){
+  for(const rootSel of candidates){
+    const roots = doc.querySelectorAll(rootSel);
+    for(const r of roots){
+      const h = r.querySelector(headSel);
+      if (h && h.innerText.trim()) return h.innerText.trim();
+    }
+  }
+  // 全域掃一輪 heading，選最上方且文字最長者
+  const hs = Array.from(doc.querySelectorAll(headSel)).filter(x=>x.innerText.trim().length>0);
+  if (hs.length){
+    hs.sort((a,b)=>a.getBoundingClientRect().top - b.getBoundingClientRect().top || b.innerText.length - a.innerText.length);
+    return hs[0].innerText.trim();
+  }
+  return null;
+}
+let t = findIn(document);
+if (!t){
+  const ifr = Array.from(document.querySelectorAll("iframe"));
+  for(const f of ifr){
+    try{
+      const d = f.contentDocument || f.contentWindow?.document;
+      if (!d) continue;
+      t = findIn(d);
+      if (t) break;
+    }catch(e){}
+  }
+}
+return t;
+"""
+    while time.time() < end:
+        title = driver.execute_script(js)
+        if title: 
+            return title.strip()
+        time.sleep(0.3)
+    return None
+
+# ----- 找輸入框，以便後續送出 -----
+def locate_compose(driver, timeout=40):
+    end = time.time() + timeout
+    while time.time() < end:
+        # 主文檔先找
+        els = driver.find_elements(By.CSS_SELECTOR, "[contenteditable='true'][role='textbox']")
+        if els: return els[0]
+        # 掃 iframe
+        iframes = driver.find_elements(By.CSS_SELECTOR, "iframe")
+        for f in iframes:
+            try:
+                driver.switch_to.default_content()
+                driver.switch_to.frame(f)
+                els = driver.find_elements(By.CSS_SELECTOR, "[contenteditable='true'][role='textbox']")
+                if els:
+                    return els[0]
+            except Exception:
+                pass
+        driver.switch_to.default_content()
+        time.sleep(0.3)
+    raise RuntimeError("找不到輸入框")
+
+# ----- 驗證目前情境是否就是你的目標 -----
+def assert_chat_context(driver, expect_chat_id=None, expect_title=None):
+    info = get_route_info(driver)
+    if info.get("kind") != "chat":
+        raise AssertionError(f"現在不在聊天視圖：{info}")
+    if expect_chat_id and info.get("chatId") != expect_chat_id:
+        raise AssertionError(f"chatId 不符：now={info.get('chatId')} expect={expect_chat_id}")
+    if expect_title:
+        title = read_header_title(driver) or ""
+        if expect_title.strip() not in title:
+            raise AssertionError(f"標題不符：now_title='{title}' expect_contains='{expect_title}'")
+    return info
+
+def assert_channel_context(driver, expect_channel_id=None, expect_group_id=None, expect_tenant_id=None, expect_channel_name=None):
+    info = get_route_info(driver)
+    if info.get("kind") != "channel":
+        raise AssertionError(f"現在不在頻道視圖：{info}")
+    if expect_channel_id and info.get("channelId") != expect_channel_id:
+        raise AssertionError(f"channelId 不符：now={info.get('channelId')} expect={expect_channel_id}")
+    if expect_group_id and info.get("groupId") != expect_group_id:
+        raise AssertionError(f"groupId 不符：now={info.get('groupId')} expect={expect_group_id}")
+    if expect_tenant_id and info.get("tenantId") != expect_tenant_id:
+        raise AssertionError(f"tenantId 不符：now={info.get('tenantId')} expect={expect_tenant_id}")
+    if expect_channel_name:
+        # 用包含比對，避免多語系附加字詞
+        now_name = (info.get("channelName") or read_header_title(driver) or "").strip()
+        if expect_channel_name.strip() not in now_name:
+            raise AssertionError(f"頻道名稱不符：now='{now_name}' expect_contains='{expect_channel_name}'")
+    return info
+
+# ----- 安全送出（先驗證，錯就不送） -----
+def safe_send_text(driver, text, *, chat_id=None, chat_title_contains=None,
+                   channel_id=None, group_id=None, tenant_id=None, channel_name_contains=None):
+    # 1) 驗證情境
+    if chat_id or chat_title_contains:
+        assert_chat_context(driver, chat_id, chat_title_contains)
+    elif channel_id or group_id or tenant_id or channel_name_contains:
+        assert_channel_context(driver, channel_id, group_id, tenant_id, channel_name_contains)
+    else:
+        raise ValueError("你需要提供聊天或頻道的期望條件之一來驗證")
+
+    # 2) 找輸入框
+    compose = locate_compose(driver)
+    compose.click()
+    # 3) 輸入與送出（若租戶 Enter=換行，改找送出按鈕）
+    for line in text.split("\n"):
+        compose.send_keys(line)
+        compose.send_keys(Keys.SHIFT, Keys.ENTER)
+    compose.send_keys(Keys.BACK_SPACE)
+    try:
+        compose.send_keys(Keys.ENTER)
+    except Exception:
+        btn = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((
+            By.CSS_SELECTOR, "button[aria-label='Send'], button[aria-label*='傳送'], button[aria-label*='發送']"
+        )))
+        btn.click()
+    # 簡單確認
+    WebDriverWait(driver, 20).until(EC.presence_of_element_located((
+        By.CSS_SELECTOR, "[data-tid*='messageContent'], .chat-message-container"
+    )))
+
+# ===== 使用範例 =====
+if __name__ == "__main__":
+    driver = build_driver()
+
+    # A) 發到「聊天」：用 chatId + 標題雙重驗證
+    target_chat_id = "19:xxxxxxxxxxxxxxxx@thread.tacv2"
+    open_chat_by_id(driver, target_chat_id)
+    WebDriverWait(driver, 60).until(EC.presence_of_element_located((
+        By.CSS_SELECTOR, "[data-tid*='app-bar'], [aria-label='Chat'], [aria-label*='聊天']"
+    )))
+    safe_send_text(driver, "這是一則安全送出的測試 ✅",
+                   chat_id=target_chat_id,
+                   chat_title_contains="專案群組")   # 標題可留空
+
+    # B) 發到「頻道」：用 channelId + groupId + tenantId + 頻道名稱多重驗證
+    # open_channel_by_link(driver,
+    #     channel_id="19:yyyyyyyyyyyyyyyy@thread.tacv2",
+    #     group_id="00000000-1111-2222-3333-444444444444",
+    #     tenant_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    #     channel_name="一般"
+    # )
+    # WebDriverWait(driver, 60).until(EC.presence_of_element_located((
+    #     By.CSS_SELECTOR, "[data-tid*='app-bar'], [aria-label*='頻道'], [aria-label*='Channel']"
+    # )))
+    # safe_send_text(driver, "頻道訊息安全送出 📣",
+    #     channel_id="19:yyyyyyyyyyyyyyyy@thread.tacv2",
+    #     group_id="00000000-1111-2222-3333-444444444444",
+    #     tenant_id="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    #     channel_name_contains="一般"
+    # )
+
+
+為什麼這樣能「確認」？
+
+路由層：location.href 是 SPA 真實路由的單一事實來源。
+
+聊天一定帶 .../conversations/<chatId>?ctx=chat。
+
+頻道一定帶 .../l/channel/<channelId>/...?...groupId=...&tenantId=...。
+先比對這些 ID 就能 99% 確認你所在的目標。
+
+UI 標頭層：再讀取畫面標頭（聊天室/頻道名稱）比對，防止稀有情況下的路由殘影或延遲。
+
+送出前阻斷：若比對失敗，直接 raise error，不送訊息。
+
+可選的第三層（加強版）
+
+送出前先注入一段不送出的草稿（例如在輸入框暫填一個 GUID），再從 header/URL 再核對一次，最後才送出。
+這能避免路由剛切換時輸入框尚屬於舊視圖的極端情況（很少見）。
+
+
+
+--------------------------------------------------------------
+確保網頁是存活的狀態
+
+
+下面給你一套「Web Teams 存活檢查 + 自動復原」的實作。核心想法是每次要送訊息前，
+先跑一個 ensure_alive()：同時檢查瀏覽器連線、目前網址是否在 Teams、同源網路是否可通、輸入框是否可互動；若失敗就自動導回目標 Deep Link（帶 &web=1）、或重載，最後才送。
+
+你可以直接把它接到你現有的發訊流程前面。
+
+
+import os, re, time
+from urllib.parse import urlparse, parse_qs, unquote, quote
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import WebDriverException
+
+DEBUGGER_ADDRESS = "127.0.0.1:9992"
+CHROMEDRIVER_PATH = "chromedriver.exe"
+
+# ====== 你自己的目標（擇一）======
+TARGET_CHAT_ID = "19:xxxxxxxxxxxxxxxx@thread.tacv2"  # 聊天（建議用 chatId）
+CHANNEL = {
+    "channel_id": "19:yyyyyyyyyyyyyyyy@thread.tacv2",
+    "group_id":   "00000000-1111-2222-3333-444444444444",
+    "tenant_id":  "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    "channel_name": "一般",
+}
+
+def build_driver():
+    opts = webdriver.ChromeOptions()
+    opts.add_experimental_option("debuggerAddress", DEBUGGER_ADDRESS)
+    service = Service(CHROMEDRIVER_PATH)
+    drv = webdriver.Chrome(service=service, options=opts)
+    drv.implicitly_wait(0)
+    return drv
+
+# ---------- 直達連結 ----------
+def open_chat_by_id(driver, chat_id):
+    driver.get(f"https://teams.microsoft.com/_#/conversations/{chat_id}?ctx=chat&web=1")
+
+def open_channel_by_link(driver, channel_id, group_id, tenant_id, channel_name):
+    url = ("https://teams.microsoft.com/l/channel/"
+           f"{channel_id}/{quote(channel_name)}"
+           f"?groupId={group_id}&tenantId={tenant_id}&web=1")
+    driver.get(url)
+
+# ---------- 基礎工具 ----------
+def get_route_info(driver):
+    href = driver.execute_script("return location.href")
+    info = {"url": href, "kind": "unknown"}
+    m = re.search(r"/conversations/(19:[^/?#]+@thread\.tacv2)", href)
+    if m:
+        info.update({"kind":"chat", "chatId": m.group(1)})
+        return info
+    if "/l/channel/" in href:
+        p = urlparse(href)
+        q = parse_qs(p.query)
+        parts = p.path.split("/l/channel/",1)[1].split("/",1)
+        info.update({
+            "kind":"channel",
+            "channelId": parts[0],
+            "groupId": q.get("groupId",[None])[0],
+            "tenantId": q.get("tenantId",[None])[0],
+            "channelName": unquote(parts[1].split("?")[0]) if len(parts)>1 else None
+        })
+    return info
+
+def find_compose(driver, timeout=12):
+    end = time.time() + timeout
+    while time.time() < end:
+        # 主文檔
+        els = driver.find_elements(By.CSS_SELECTOR, "[contenteditable='true'][role='textbox']")
+        if els: return els[0]
+        # iframe 掃描
+        iframes = driver.find_elements(By.CSS_SELECTOR, "iframe")
+        for f in iframes:
+            try:
+                driver.switch_to.default_content()
+                driver.switch_to.frame(f)
+                els = driver.find_elements(By.CSS_SELECTOR, "[contenteditable='true'][role='textbox']")
+                if els: return els[0]
+            except Exception:
+                pass
+        driver.switch_to.default_content()
+        time.sleep(0.25)
+    return None
+
+def ping_same_origin(driver, path="/_?web=1", ms_timeout=4000):
+    """
+    在頁面端做同源 HEAD 請求，確認網路 & 租戶連線可用。
+    回傳 dict: {"ok":bool,"status":int|None,"error":str|None}
+    """
+    script = r"""
+const done = arguments[arguments.length - 1];
+const path = arguments[0], ms_timeout = arguments[1];
+const ctrl = new AbortController();
+const id = setTimeout(()=>ctrl.abort(), ms_timeout);
+fetch(path, {method:'HEAD', cache:'no-store', signal: ctrl.signal})
+  .then(r => { clearTimeout(id); done({ok: r.ok, status: r.status}); })
+  .catch(e => { clearTimeout(id); done({ok:false, status:null, error: String(e)}); });
+"""
+    try:
+        return driver.execute_async_script(script, path, ms_timeout)
+    except WebDriverException as e:
+        return {"ok": False, "status": None, "error": f"exec_async_failed: {e.msg[:120]}"}
+
+def probe_compose_interactive(driver, el):
+    """
+    不輸出「正在輸入」；僅用 JS 輕點選 & 檢查屬性/可編輯性。
+    """
+    script = r"""
+const el = arguments[0];
+try{
+  const editable = el.getAttribute('contenteditable') === 'true';
+  const disabled  = el.getAttribute('aria-disabled') === 'true';
+  const hidden = el.offsetParent === null; // 粗略可見性
+  // 嘗試建立與移除一個零寬度字元的占位，不派送 input 事件
+  const mark = document.createElement('span');
+  mark.setAttribute('data-liveness-probe', Date.now());
+  mark.style.display='none';
+  el.appendChild(mark);
+  const attached = el.contains(mark);
+  if (attached) mark.remove();
+  return {editable, disabled, hidden, attached};
+}catch(e){
+  return {error:String(e)};
+}
+"""
+    return driver.execute_script(script, el)
+
+# ---------- 存活檢查 + 自動復原 ----------
+def ensure_alive(driver, *, target_chat_id=None, target_channel=None, max_retries=2, verbose=True):
+    """
+    回傳 (ok:bool, info:dict)
+    info 會附帶每一步檢查的結果，便於記錄。
+    """
+    info = {"step": []}
+
+    # A. 驅動層：WebDriver 是否仍附著
+    try:
+        driver.execute_script("return 1")
+        info["step"].append("driver_ok")
+    except WebDriverException as e:
+        info["step"].append(f"driver_bad:{e.msg[:120]}")
+        return False, info  # 這種通常是 Chrome 關了或 DevTools 斷線
+
+    # B. 網域/路由層：是否在 teams.microsoft.com & 正確視圖
+    try:
+        origin = driver.execute_script("return location.origin")
+        href   = driver.execute_script("return location.href")
+        info["origin"] = origin; info["href"] = href
+    except Exception as e:
+        info["step"].append(f"location_fail:{e}")
+        return False, info
+
+    if "teams.microsoft.com" not in info["origin"]:
+        info["step"].append("not_on_teams_origin")
+        # 嘗試導回
+        driver.get("https://teams.microsoft.com/_?web=1")
+        WebDriverWait(driver, 30).until(EC.presence_of_element_located(
+            (By.CSS_SELECTOR, "body")))
+        # 重新取一次
+        origin = driver.execute_script("return location.origin")
+        if "teams.microsoft.com" not in origin:
+            info["step"].append("redirect_back_failed")
+            return False, info
+
+    # C. 同源 Ping：確保租戶/網路通
+    ping = ping_same_origin(driver)
+    info["ping"] = ping
+    if not ping.get("ok", False):
+        info["step"].append(f"ping_fail:{ping}")
+        # 網路暫斷或 cookie 過期時，通常重新導向到目標可恢復
+    else:
+        info["step"].append("ping_ok")
+
+    # D. 視圖與輸入框：確保在聊天/頻道，且輸入框可互動
+    def goto_target():
+        if target_chat_id:
+            open_chat_by_id(driver, target_chat_id)
+        elif target_channel:
+            open_channel_by_link(driver,
+                target_channel["channel_id"],
+                target_channel["group_id"],
+                target_channel["tenant_id"],
+                target_channel["channel_name"]
+            )
+        else:
+            driver.get("https://teams.microsoft.com/_?web=1")
+
+    tries = 0
+    while tries <= max_retries:
+        route = get_route_info(driver)
+        info["route"] = route
+        # 若提供了目標，就檢查是否一致；否則只要能找到可用輸入框即可
+        target_ok = True
+        if target_chat_id and route.get("kind") == "chat":
+            target_ok = (route.get("chatId") == target_chat_id)
+        elif target_channel and route.get("kind") == "channel":
+            target_ok = (route.get("channelId") == target_channel["channel_id"]
+                        and route.get("groupId") == target_channel["group_id"]
+                        and route.get("tenantId")== target_channel["tenant_id"])
+        elif (target_chat_id or target_channel) and route.get("kind") == "unknown":
+            target_ok = False
+
+        el = find_compose(driver, timeout=8)
+        if target_ok and el:
+            probe = probe_compose_interactive(driver, el)
+            info["probe"] = probe
+            if probe.get("error"):
+                info["step"].append(f"probe_error:{probe['error']}")
+            # 視為可互動的條件：editable 且非 disabled 且非 hidden
+            if probe.get("editable") and not probe.get("disabled") and not probe.get("hidden"):
+                info["step"].append("compose_ready")
+                return True, info
+
+        # 未達成 → 嘗試復原：導向目標或重載
+        tries += 1
+        if verbose: print(f"[ensure_alive] recover try {tries}/{max_retries} ...")
+        goto_target()
+        # 等待主體載入
+        try:
+            WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
+        except Exception:
+            pass
+
+    info["step"].append("compose_not_ready_after_recover")
+    return False, info
+
+# ---------- 示例：安全發送 ----------
+def safe_send_text(driver, text):
+    ok, detail = ensure_alive(driver, target_chat_id=TARGET_CHAT_ID, # 或改成 target_channel=CHANNEL
+                              max_retries=2, verbose=True)
+    if not ok:
+        raise RuntimeError(f"Web Teams 不在存活/正確狀態：{detail}")
+
+    # 真正送出
+    el = find_compose(driver, timeout=10)
+    el.click()
+    for line in text.split("\n"):
+        el.send_keys(line)
+        el.send_keys(Keys.SHIFT, Keys.ENTER)
+    el.send_keys(Keys.BACK_SPACE)
+    try:
+        el.send_keys(Keys.ENTER)
+    except Exception:
+        btn = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((
+            By.CSS_SELECTOR, "button[aria-label='Send'], button[aria-label*='傳送'], button[aria-label*='發送']"
+        )))
+        btn.click()
+    WebDriverWait(driver, 20).until(EC.presence_of_element_located((
+        By.CSS_SELECTOR, "[data-tid*='messageContent'], .chat-message-container"
+    )))
+
+if __name__ == "__main__":
+    driver = build_driver()
+    # 建議先導到目標（可省一次復原）
+    open_chat_by_id(driver, TARGET_CHAT_ID)  # 或 open_channel_by_link(...)
+    WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
+    safe_send_text(driver, "這是一則在『存活檢查』後送出的訊息 ✅")
+
+
+
+
+--------------------------------------------------------------------------------------------------------
+如果去監聽特定的群組有新的訊息,可以拆成監聽跟送訊息
+
+watcher.py（監聽端）
+
+直達 chat/channel
+
+安裝 MutationObserver
+
+深度查找（含 iframe / open shadow root）
+
+定期撈取新事件
+
+可設定 SELF_NAME 過濾掉「自己發的訊息」
+
+# watcher.py
+import os, time, json, hashlib, sys
+from urllib.parse import quote
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+DEBUGGER_ADDRESS = "127.0.0.1:9992"
+CHROMEDRIVER_PATH = "chromedriver.exe"
+
+# ======== 監聽目標（擇一）========
+TARGET = {
+    "type": "chat",  # "chat" 或 "channel"
+    "chat_id": "19:xxxxxxxxxxxxxxxx@thread.tacv2",
+    # "channel": {
+    #   "channel_id": "19:yyyyyyyyyyyyyyyy@thread.tacv2",
+    #   "group_id": "00000000-1111-2222-3333-444444444444",
+    #   "tenant_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    #   "channel_name": "一般",
+    # }
+}
+
+SELF_NAME = None  # 你的顯示名稱；若設定，會把同名 sender 的訊息視為「自己」，可選擇忽略
+POLL_INTERVAL = 2.0  # 秒
+OUTFILE = "teams_watch_log.ndjson"  # 事件持久化（可選）
+
+def build_driver():
+    opts = webdriver.ChromeOptions()
+    opts.add_experimental_option("debuggerAddress", DEBUGGER_ADDRESS)
+    service = Service(CHROMEDRIVER_PATH)
+    d = webdriver.Chrome(service=service, options=opts)
+    d.implicitly_wait(0)
+    return d
+
+def new_tab(driver):
+    driver.switch_to.new_window('tab')
+    return driver.current_window_handle
+
+def goto_target(driver):
+    if TARGET["type"] == "chat":
+        url = f"https://teams.microsoft.com/_#/conversations/{TARGET['chat_id']}?ctx=chat&web=1"
+    else:
+        c = TARGET["channel"]
+        url = ("https://teams.microsoft.com/l/channel/"
+               f"{c['channel_id']}/{quote(c['channel_name'])}"
+               f"?groupId={c['group_id']}&tenantId={c['tenant_id']}&web=1")
+    driver.get(url)
+    WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
+
+def install_observer(driver):
+    """
+    在（主文件 + 第一層 iframes + open shadow）中尋找訊息清單容器，掛上 MutationObserver。
+    事件會被推進 window.__teamsEvents 佇列。
+    """
+    js = r"""
+(function(){
+  // 若已安裝就不重覆
+  if (window.__teamsObserverInstalled) return 'installed';
+  window.__teamsObserverInstalled = true;
+  window.__teamsEvents = window.__teamsEvents || [];
+
+  function queryAllDeep(root, selector){
+    const out = Array.from(root.querySelectorAll(selector));
+    // 走過 open shadow roots
+    const it = root.querySelectorAll('*');
+    for (const el of it){
+      if (el.shadowRoot){
+        out.push(...el.shadowRoot.querySelectorAll(selector));
+      }
+    }
+    // 再檢查 root 自己的 shadowRoot
+    if (root.shadowRoot){
+      out.push(...root.shadowRoot.querySelectorAll(selector));
+    }
+    return out;
+  }
+
+  function findMessageList(doc){
+    const sels = [
+      "[data-tid*='messageList']",
+      "[data-tid*='chat-message-list']",
+      "[aria-label*='messages list']",
+      "[aria-label*='訊息清單']",
+      "[role='list']"
+    ];
+    for (const s of sels){
+      const arr = queryAllDeep(doc, s);
+      // 取看起來比較大的那個
+      if (arr && arr.length){
+        arr.sort((a,b)=> (b.scrollHeight*b.scrollWidth) - (a.scrollHeight*a.scrollWidth));
+        return arr[0];
+      }
+    }
+    return null;
+  }
+
+  function extractText(el){
+    // 優先抓 message content 容器
+    const cand = [
+      "[data-tid*='messageContent']",
+      "[data-tid*='message-body']",
+      "[data-tid*='messageBody']",
+      "[data-tid*='text-content']",
+      "[role='document']",
+      ".chat-message-container"
+    ];
+    for (const s of cand){
+      const t = el.querySelector(s) || (el.shadowRoot && el.shadowRoot.querySelector(s));
+      if (t && t.innerText) return t.innerText.trim();
+    }
+    return (el.innerText||"").trim();
+  }
+
+  function extractSender(el){
+    const cand = [
+      "[data-tid*='messageAuthor']",
+      "[data-tid*='author-name']",
+      "[data-tid*='sender']",
+      "[aria-label*='said'], [aria-label*='說']"
+    ];
+    for (const s of cand){
+      const t = el.querySelector(s) || (el.shadowRoot && el.shadowRoot.querySelector(s));
+      if (t && t.innerText) return t.innerText.trim();
+      if (t && t.getAttribute && t.getAttribute('aria-label')) return t.getAttribute('aria-label');
+    }
+    // 有些樣式把作者放在同一 group header 上，往上找 heading
+    let p = el.parentElement;
+    while (p){
+      const h = p.querySelector("h1, h2, [role='heading']");
+      if (h && h.innerText.trim()) return h.innerText.trim();
+      p = p.parentElement;
+    }
+    return null;
+  }
+
+  function extractTime(el){
+    const cand = [
+      "time[datetime]", "[data-tid*='timestamp']", "[aria-label*='AM']", "[aria-label*='PM']",
+      "[aria-label*='上午']", "[aria-label*='下午']", "[data-tid*='messageTime']"
+    ];
+    for (const s of cand){
+      const t = el.querySelector(s) || (el.shadowRoot && el.shadowRoot.querySelector(s));
+      if (t && t.getAttribute){
+        const dt = t.getAttribute('datetime');
+        if (dt) return dt;
+        const al = t.getAttribute('aria-label');
+        if (al) return al;
+      }
+      if (t && t.innerText) return t.innerText.trim();
+    }
+    return null;
+  }
+
+  function msgHash(sender, text, time){
+    const s = JSON.stringify({sender, text, time});
+    let h = 0, i, chr;
+    for (i = 0; i < s.length; i++) {
+      chr   = s.charCodeAt(i);
+      h  = ((h << 5) - h) + chr;
+      h |= 0;
+    }
+    return "m_" + (h >>> 0).toString(16);
+  }
+
+  function wire(doc){
+    const list = findMessageList(doc);
+    if (!list) return false;
+
+    const seen = new Set();
+    const liSel = "[role='listitem'], [data-tid*='message']";
+
+    function harvest(el){
+      const text = extractText(el);
+      if (!text) return;
+      const sender = extractSender(el);
+      const timeStr = extractTime(el) || new Date().toISOString();
+      const id = (el.id && el.id.length>0) ? el.id : msgHash(sender, text, timeStr);
+      if (seen.has(id)) return;
+      seen.add(id);
+
+      window.__teamsEvents.push({
+        id, sender, text, time: timeStr, ts: Date.now()
+      });
+    }
+
+    // 初始把目前畫面內的訊息抓一次（避免漏掉載入時的最後幾則）
+    const items = queryAllDeep(list, liSel);
+    for (const it of items){ harvest(it); }
+
+    const mo = new MutationObserver((muts)=>{
+      for (const m of muts){
+        if (m.type === 'childList' && m.addedNodes && m.addedNodes.length){
+          m.addedNodes.forEach(n=>{
+            if (!(n instanceof Element)) return;
+            if (n.matches && (n.matches(liSel))){
+              harvest(n);
+            }else{
+              // 有時候包一層 container
+              const cand = n.querySelectorAll ? n.querySelectorAll(liSel) : [];
+              cand.forEach(harvest);
+            }
+          });
+        }
+      }
+    });
+    mo.observe(list, {childList:true, subtree:true});
+    window.__teamsObserver = mo;
+    return true;
+  }
+
+  // 先在主文件裝，若失敗再嘗試第一層 iframe
+  if (wire(document)) return 'wired:main';
+  const ifr = Array.from(document.querySelectorAll("iframe"));
+  for (const f of ifr){
+    try{
+      const d = f.contentDocument || f.contentWindow?.document;
+      if (d && wire(d)) return 'wired:iframe';
+    }catch(e){}
+  }
+  return 'not_found';
+})();
+"""
+    res = driver.execute_script(js)
+    return res  # 'wired:main' / 'wired:iframe' / 'installed' / 'not_found'
+
+def fetch_events(driver):
+    js = r"""
+if (!window.__teamsEvents) return [];
+const out = window.__teamsEvents.slice();
+window.__teamsEvents.length = 0;
+return out;
+"""
+    return driver.execute_script(js)
+
+def main():
+    driver = build_driver()
+    # 專用監聽分頁
+    tab = new_tab(driver)
+    goto_target(driver)
+    # 等主體載入
+    WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
+
+    # 安裝觀察器（可重試數次，直到訊息清單出現）
+    wired = "not_found"
+    for _ in range(10):
+        wired = install_observer(driver)
+        if wired != "not_found":
+            break
+        time.sleep(1.0)
+    print(f"[watcher] observer status: {wired}")
+
+    # 持續拉取事件
+    outfp = open(OUTFILE, "a", encoding="utf-8") if OUTFILE else None
+    try:
+        while True:
+            events = fetch_events(driver) or []
+            for ev in events:
+                # 過濾自己
+                if SELF_NAME and ev.get("sender") and SELF_NAME.strip() == ev["sender"].strip():
+                    continue
+                line = json.dumps(ev, ensure_ascii=False)
+                print(line)
+                if outfp:
+                    outfp.write(line + "\n"); outfp.flush()
+            time.sleep(POLL_INTERVAL)
+    except KeyboardInterrupt:
+        print("[watcher] stopped.")
+    finally:
+        if outfp: outfp.close()
+
+if __name__ == "__main__":
+    main()
+
+--------------------------------------------------------------------------------------------------
+
+sender.py（發送端）
+
+獨立腳本，保有你之前用的 ensure_alive() / safe_send_text() 流程即可。這裡給一個簡化版（直達 + 找輸入框 + 送出）。
+
+# sender.py
+import time
+from urllib.parse import quote
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+DEBUGGER_ADDRESS = "127.0.0.1:9992"
+CHROMEDRIVER_PATH = "chromedriver.exe"
+CHAT_ID = "19:xxxxxxxxxxxxxxxx@thread.tacv2"  # 與 watcher 監聽的同一群組
+
+def build_driver():
+    opts = webdriver.ChromeOptions()
+    opts.add_experimental_option("debuggerAddress", DEBUGGER_ADDRESS)
+    service = Service(CHROMEDRIVER_PATH)
+    d = webdriver.Chrome(service=service, options=opts)
+    d.implicitly_wait(0)
+    return d
+
+def open_chat(driver, chat_id):
+    driver.get(f"https://teams.microsoft.com/_#/conversations/{chat_id}?ctx=chat&web=1")
+    WebDriverWait(driver, 60).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
+
+def find_compose(driver, timeout=30):
+    end = time.time() + timeout
+    while time.time() < end:
+        # 主文檔
+        els = driver.find_elements(By.CSS_SELECTOR, "[contenteditable='true'][role='textbox']")
+        if els: return els[0]
+        # 掃 iframe
+        iframes = driver.find_elements(By.CSS_SELECTOR, "iframe")
+        for f in iframes:
+            try:
+                driver.switch_to.default_content(); driver.switch_to.frame(f)
+                els = driver.find_elements(By.CSS_SELECTOR, "[contenteditable='true'][role='textbox']")
+                if els: return els[0]
+            except Exception: pass
+        driver.switch_to.default_content()
+        time.sleep(0.2)
+    raise RuntimeError("找不到輸入框")
+
+def send_text(driver, text):
+    box = find_compose(driver, 40)
+    box.click()
+    for line in text.split("\n"):
+        box.send_keys(line)
+        box.send_keys(Keys.SHIFT, Keys.ENTER)
+    box.send_keys(Keys.BACK_SPACE)
+    try:
+        box.send_keys(Keys.ENTER)
+    except Exception:
+        btn = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Send'], button[aria-label*='傳送'], button[aria-label*='發送']"))
+        )
+        btn.click()
+    WebDriverWait(driver, 20).until(EC.presence_of_element_located((
+        By.CSS_SELECTOR, "[data-tid*='messageContent'], .chat-message-container"
+    )))
+
+if __name__ == "__main__":
+    d = build_driver()
+    open_chat(d, CHAT_ID)
+    send_text(d, "這是一則由 sender.py 送出的訊息 ✅")
+
+關鍵實務建議
+
+分頁隔離：watcher.py 一啟動就 new_window('tab')，把監聽綁定在那個分頁；sender.py 另開或使用現有分頁。避免互搶焦點。
+
+穩定性：Teams DOM 會更新。監聽程式用多組 selector + 深度查找（iframe + open shadow root）。若你的租戶用了更客製化的 DOM，你可以把監聽腳本裡的 selector 換成你環境最穩的（用 F12 看 data-tid）。
+
+自發訊息過濾：設定 SELF_NAME 就能在 watcher 端忽略自己送出的訊息，避免形成「回聲」。
+
+持久化與對接：OUTFILE 記成 NDJSON；或改成把事件 POST 到你的 webhook、排進 RabbitMQ、寫入 SQLite…都可以。
+
+多租戶/逾時：如果會被踢回登入，監聽端會失去容器；可以加上你先前的 ensure_alive() 那套保活與自動導回 Deep Link。
+
+
+------------------------------------------------------------------------------------------------
+sender 設定當收到監聽端特定訊息時,發送特定訊息
+
+可以，把「監聽」和「自動回覆」用一個超簡單的本機 webhook 串起來：
+
+watcher.py（你已經有了）在抓到新訊息事件時，POST 到 http://127.0.0.1:8765/event
+
+sender_server.py 常駐，接到事件就依規則比對並自動發送指定訊息
+
+這樣兩個程式各做各的、不搶同一個分頁，邏輯清晰、也好維護。
+下方給你完整可用的 sender_server.py，以及把你現有 watcher.py 加上 3 行就能串起來的修改。
+
+
+1) sender_server.py（常駐的自動回覆伺服端）
+
+內建 http.server，不用裝套件。收到 watcher 的事件就比對規則 → 用 Selenium 送訊息
+預設規則示範：
+文字含 #ping → 回覆 pong
+文字符合 ^報表(\d{4}-\d{2}-\d{2})$ → 回覆帶日期
+文字含 上傳表格 →（範例）回覆一句話；你可延伸成「上傳圖片/表格」的流程
+
+# sender_server.py
+import json, re, time, threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+# ===== 你的環境 =====
+DEBUGGER_ADDRESS = "127.0.0.1:9992"
+CHROMEDRIVER_PATH = "chromedriver.exe"
+CHAT_ID = "19:xxxxxxxxxxxxxxxx@thread.tacv2"   # 目標群組/聊天室（和 watcher 監聽的是同一個）
+SELF_NAME = "你的Teams顯示名稱"                 # 防回聲：忽略自己送出的訊息（建議填）
+
+# ===== Selenium 基礎 =====
+_driver = None
+_send_lock = threading.Lock()   # 避免多請求同時送訊息互搶焦點
+
+def build_driver():
+    global _driver
+    opts = webdriver.ChromeOptions()
+    opts.add_experimental_option("debuggerAddress", DEBUGGER_ADDRESS)
+    service = Service(CHROMEDRIVER_PATH)
+    _driver = webdriver.Chrome(service=service, options=opts)
+    _driver.implicitly_wait(0)
+
+def ensure_driver_ready():
+    global _driver
+    try:
+        if _driver is None:
+            build_driver()
+        else:
+            _driver.execute_script("return 1")
+    except Exception:
+        build_driver()
+
+def open_chat(chat_id):
+    _driver.get(f"https://teams.microsoft.com/_#/conversations/{chat_id}?ctx=chat&web=1")
+    WebDriverWait(_driver, 60).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
+
+def find_compose(timeout=30):
+    end = time.time() + timeout
+    while time.time() < end:
+        els = _driver.find_elements(By.CSS_SELECTOR, "[contenteditable='true'][role='textbox']")
+        if els: return els[0]
+        iframes = _driver.find_elements(By.CSS_SELECTOR, "iframe")
+        for f in iframes:
+            try:
+                _driver.switch_to.default_content(); _driver.switch_to.frame(f)
+                els = _driver.find_elements(By.CSS_SELECTOR, "[contenteditable='true'][role='textbox']")
+                if els: return els[0]
+            except Exception: pass
+        _driver.switch_to.default_content()
+        time.sleep(0.2)
+    raise RuntimeError("找不到輸入框")
+
+def send_text(text):
+    compose = find_compose(40)
+    compose.click()
+    for line in text.split("\n"):
+        compose.send_keys(line); compose.send_keys(Keys.SHIFT, Keys.ENTER)
+    compose.send_keys(Keys.BACK_SPACE)
+    try:
+        compose.send_keys(Keys.ENTER)
+    except Exception:
+        btn = WebDriverWait(_driver, 10).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Send'], button[aria-label*='傳送'], button[aria-label*='發送']"))
+        )
+        btn.click()
+    WebDriverWait(_driver, 20).until(EC.presence_of_element_located((
+        By.CSS_SELECTOR, "[data-tid*='messageContent'], .chat-message-container"
+    )))
+
+# ===== 自動回覆規則 =====
+# 回傳 None 表示不回；回傳字串表示要回覆的內容
+_last_fire = {}  # rule_name -> last_ts，用來做冷卻時間（避免洗版）
+
+def rule_contains_ping(ev):
+    """文字包含 #ping → 回 pong"""
+    txt = (ev.get("text") or "").strip()
+    if "#ping" in txt:
+        return "pong"
+    return None
+
+def rule_report_date(ev):
+    """訊息=報表YYYY-MM-DD → 回覆已收到"""
+    txt = (ev.get("text") or "").strip()
+    m = re.match(r"^報表(\d{4}-\d{2}-\d{2})$", txt)
+    if m:
+        d = m.group(1)
+        return f"已收到報表日期 {d}，開始處理 ✅"
+    return None
+
+def rule_upload_hint(ev):
+    """訊息包含 '上傳表格' → 回覆提示（可延伸成真的上傳圖片/表格）"""
+    txt = (ev.get("text") or "").strip()
+    if "上傳表格" in txt:
+        return "好的，我來上傳最新表格快照。"
+    return None
+
+RULES = [
+    ("contains_ping",  rule_contains_ping, 3),   # (名字, 規則函式, 冷卻秒數)
+    ("report_date",    rule_report_date,   5),
+    ("upload_hint",    rule_upload_hint,   5),
+]
+
+def apply_rules(ev):
+    """依序套用規則；第一個命中的就回覆（可改成累積多則）"""
+    sender = (ev.get("sender") or "").strip()
+    if SELF_NAME and sender == SELF_NAME:
+        return None  # 忽略自己，防回聲
+
+    now = time.time()
+    for name, fn, cooldown in RULES:
+        # 冷卻
+        last = _last_fire.get(name, 0)
+        if now - last < cooldown:
+            continue
+        reply = fn(ev)
+        if reply:
+            _last_fire[name] = now
+            return reply
+    return None
+
+# ===== HTTP Handler =====
+class Handler(BaseHTTPRequestHandler):
+    def _json(self, code, obj):
+        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        if urlparse(self.path).path != "/event":
+            return self._json(404, {"error":"not found"})
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(length)
+            payload = json.loads(raw.decode("utf-8"))
+        except Exception as e:
+            return self._json(400, {"error": f"bad json: {e}"})
+
+        # 允許單一事件或事件陣列
+        events = payload if isinstance(payload, list) else [payload]
+        results = []
+
+        for ev in events:
+            try:
+                reply = apply_rules(ev)
+                if reply:
+                    with _send_lock:
+                        ensure_driver_ready()
+                        open_chat(CHAT_ID)
+                        send_text(reply)
+                results.append({"id": ev.get("id"), "replied": bool(reply)})
+            except Exception as e:
+                results.append({"id": ev.get("id"), "error": str(e)})
+
+        return self._json(200, {"ok": True, "results": results})
+
+    def log_message(self, *args, **kwargs):
+        # 靜音；需要時自行 print
+        pass
+
+if __name__ == "__main__":
+    server = ThreadingHTTPServer(("127.0.0.1", 8765), Handler)
+    print("sender_server listening on http://127.0.0.1:8765/event")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("sender_server stopped.")
+
+-------------------------------------------------------------------------
+
+2) 修改你的 watcher.py：把新訊息 POST 給 sender
+
+在你的 watcher.py 中，新增一個小工具函式 post_to_sender()，然後在主迴圈撈到事件後，逐筆呼叫它即可。
+
+(A) 新增這段：
+# 放在檔頭區或 imports 之後
+import json, urllib.request
+
+SENDER_ENDPOINT = "http://127.0.0.1:8765/event"  # sender_server.py 監聽位址
+
+def post_to_sender(event_dict):
+    data = json.dumps(event_dict, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        SENDER_ENDPOINT,
+        data=data,
+        headers={"Content-Type": "application/json; charset=utf-8"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        resp.read()  # 不一定要用回應
+
+(B) 把你原本的拉事件迴圈，改成：
+# 既有：
+# events = fetch_events(driver) or []
+# for ev in events:
+#     if SELF_NAME and ev.get("sender") == SELF_NAME: continue
+#     line = json.dumps(ev, ensure_ascii=False)
+#     print(line)
+#     if outfp: outfp.write(line + "\n"); outfp.flush()
+
+# 改成（保留原本的 print/寫檔，另外多 Post 一次給 sender）：
+events = fetch_events(driver) or []
+for ev in events:
+    if SELF_NAME and (ev.get("sender") or "").strip() == SELF_NAME.strip():
+        continue
+    line = json.dumps(ev, ensure_ascii=False)
+    print(line)                       # 你原有的輸出
+    if outfp:
+        outfp.write(line + "\n"); outfp.flush()
+    try:
+        post_to_sender(ev)            # ★ 通知 sender_server
+    except Exception as e:
+        print(f"[watcher] post sender failed: {e}")
+
+其他 watcher 內容（安裝 MutationObserver、抽取 sender/text/time、去重等）維持不變就好。
+
+
+使用步驟（一次搞定）
+
+先啟動 sender_server.py
+
+python sender_server.py
+
+
+你會看到：
+sender_server listening on http://127.0.0.1:8765/event
+
+
+再啟動 watcher.py（你的版本，已加入 post_to_sender 與迴圈修改）
+它會在你指定的群組/頻道分頁掛上監聽，偵測到新訊息就丟一包 JSON 到 sender。
+
+到 Teams 試打訊息：
+
+在該群組貼 #ping → sender 會自動回 pong
+
+貼 報表2025-08-30 → 會回「已收到報表日期 2025-08-30，開始處理 ✅」
+
+貼「請幫我上傳表格」或包含「上傳表格」 → 會回「好的，我來上傳最新表格快照。」
+
+
+重要防呆＆實務建議
+
+防回聲：務必設定 SELF_NAME（watcher & sender 都設），watcher 端先過濾「自己」的訊息，sender 端也再過濾一次。
+
+去重：watcher 的事件本來就用 id/hash 去重；sender 端再加「規則冷卻時間」避免短時間連續觸發。
+
+安全送出：若你要更嚴謹，能把前面我給你的 ensure_alive() / safe_send_text() 嵌進 send_text() 前；原理完全相容。
+
+延伸：圖文回覆：把先前「DataFrame→PNG→上傳」或「JS 注入 HTML + 上傳圖片」的函式搬到 sender 端，讓特定規則（例如含 #report）觸發時自動跑「產圖 + 上傳」。
+
+多群組：若要同時監聽多群，建議一個 watcher 對應一個群 + 一個 sender 規則集最單純；要集中處理也行，事件裡可加上群組的 chatId 讓 sender 端決定要回哪個群（此時 send_text() 前改成 open_chat(ev["chatId"])）。
+
+
+----------------------------------------------------------------------------------
+安裝 MutationObserver 這個在解譯一次
+
+當你看到我寫「安裝 MutationObserver」時，其實就是在網頁（Web Teams）裡掛一個DOM 變更監聽器，盯住「訊息列表」那塊容器；一旦有「新訊息節點被插入」，就把關鍵資料（sender / text / time / 一個去重用的 id）丟進一個佇列，讓 Python 端定期撈出來用。
+
+下面用可直接貼進瀏覽器 Console 或 Selenium execute_script 的最小可用版本，並穿插重點解釋。
+
+最小可用版（附註解）
+
+// 1) 全域狀態：避免重複安裝，準備事件佇列
+if (!window.__teamsObserverInstalled) {
+  window.__teamsObserverInstalled = true;
+  window.__teamsEvents = [];                  // 觀測到的新訊息事件都丟這裡
+  window.__teamsSeen  = new Set();            // 去重（依訊息 id 或 hash）
+  window.__teamsObserver = null;              // 觀測器實例
+  window.__teamsTarget = null;                // 目前被觀測的訊息清單容器
+}
+
+/** 2) 深度查找工具：支援 open Shadow DOM + 第一層 iframe */
+function queryAllDeep(root, selector) {
+  const out = Array.from(root.querySelectorAll(selector));
+  const it = root.querySelectorAll('*');
+  for (const el of it) if (el.shadowRoot)
+    out.push(...el.shadowRoot.querySelectorAll(selector));
+  if (root.shadowRoot)
+    out.push(...root.shadowRoot.querySelectorAll(selector));
+  return out;
+}
+function findInAllDocs(selector) {
+  // 先在主文件找，不到再掃第一層 iframe
+  let arr = queryAllDeep(document, selector);
+  if (arr.length) return arr;
+  for (const f of document.querySelectorAll('iframe')) {
+    try {
+      const d = f.contentDocument || f.contentWindow?.document;
+      if (!d) continue;
+      arr = queryAllDeep(d, selector);
+      if (arr.length) return arr;
+    } catch {}
+  }
+  return [];
+}
+
+/** 3) 尋找訊息清單容器（Teams 多版本 selector，取最大那塊） */
+function findMessageList() {
+  const cands = [
+    "[data-tid*='messageList']",
+    "[data-tid*='chat-message-list']",
+    "[aria-label*='messages list']",
+    "[aria-label*='訊息清單']",
+    "[role='list']"
+  ];
+  for (const sel of cands) {
+    const arr = findInAllDocs(sel);
+    if (arr.length) {
+      arr.sort((a,b)=> (b.scrollHeight*b.scrollWidth) - (a.scrollHeight*a.scrollWidth));
+      return arr[0];
+    }
+  }
+  return null;
+}
+
+/** 4) 從訊息節點萃取資料（sender / text / time），並做去重 id */
+function getText(el) {
+  const cands = [
+    "[data-tid*='messageContent']",
+    "[data-tid*='message-body']",
+    "[data-tid*='messageBody']",
+    "[data-tid*='text-content']",
+    "[role='document']",
+    ".chat-message-container"
+  ];
+  for (const s of cands) {
+    const t = el.querySelector(s) || (el.shadowRoot && el.shadowRoot.querySelector(s));
+    if (t && t.innerText) return t.innerText.trim();
+  }
+  return (el.innerText || "").trim();
+}
+function getSender(el) {
+  const cands = [
+    "[data-tid*='messageAuthor']",
+    "[data-tid*='author-name']",
+    "[data-tid*='sender']",
+    "[aria-label*='said']",
+    "[aria-label*='說']"
+  ];
+  for (const s of cands) {
+    const t = el.querySelector(s) || (el.shadowRoot && el.shadowRoot.querySelector(s));
+    if (!t) continue;
+    if (t.innerText) return t.innerText.trim();
+    if (t.getAttribute && t.getAttribute('aria-label')) return t.getAttribute('aria-label');
+  }
+  return null;
+}
+function getTime(el) {
+  const cands = [
+    "time[datetime]",
+    "[data-tid*='timestamp']",
+    "[data-tid*='messageTime']"
+  ];
+  for (const s of cands) {
+    const t = el.querySelector(s) || (el.shadowRoot && el.shadowRoot.querySelector(s));
+    if (!t) continue;
+    const dt = t.getAttribute && t.getAttribute('datetime');
+    if (dt) return dt;
+    if (t.innerText) return t.innerText.trim();
+  }
+  return new Date().toISOString();
+}
+function makeHash(sender, text, time) {
+  const s = JSON.stringify({sender, text, time});
+  let h = 0;
+  for (let i=0;i<s.length;i++) { h = ((h<<5)-h) + s.charCodeAt(i); h|=0; }
+  return "m_" + (h>>>0).toString(16);
+}
+
+/** 5) 事件採收（初始 + 新增節點時） */
+function harvest(el) {
+  // 僅關注像訊息的節點
+  const isMsg = el.matches?.("[role='listitem'], [data-tid*='message']");
+  const hasMsgChild = el.querySelector?.("[role='listitem'], [data-tid*='message']");
+  if (!isMsg && !hasMsgChild) return;
+
+  const items = isMsg ? [el] : Array.from(el.querySelectorAll("[role='listitem'], [data-tid*='message']"));
+  for (const it of items) {
+    const sender = getSender(it);
+    const text   = getText(it);
+    const time   = getTime(it);
+    if (!text) continue;                           // 沒文字就略過（貼圖/純附件可擴充）
+    const id = (it.id && it.id.length>0) ? it.id : makeHash(sender, text, time);
+    if (window.__teamsSeen.has(id)) continue;      // 去重
+    window.__teamsSeen.add(id);
+    window.__teamsEvents.push({ id, sender, text, time, ts: Date.now() });
+  }
+}
+
+/** 6) 安裝 MutationObserver：觀測 list 下「新增子節點」 */
+function installObserver() {
+  // 若先前有觀測器，先拔除
+  if (window.__teamsObserver && window.__teamsTarget) {
+    try { window.__teamsObserver.disconnect(); } catch {}
+  }
+
+  const list = findMessageList();
+  if (!list) return 'not_found';
+
+  // 初始把目前畫面內可見的訊息掃一輪，避免剛開頁漏掉最後幾則
+  queryAllDeep(list, "[role='listitem'], [data-tid*='message']").forEach(harvest);
+
+  const mo = new MutationObserver(muts => {
+    for (const m of muts) {
+      if (m.type === 'childList' && m.addedNodes?.length) {
+        m.addedNodes.forEach(n => { if (n.nodeType === 1) harvest(n); });
+      }
+    }
+  });
+  mo.observe(list, { childList: true, subtree: true });
+  window.__teamsObserver = mo;
+  window.__teamsTarget = list;
+  return 'wired';
+}
+
+/** 7) 自動保活：SPA 重新渲染時，容器常被替換 → 週期性檢查重掛 */
+if (!window.__teamsKeepAlive) {
+  window.__teamsKeepAlive = setInterval(() => {
+    try {
+      if (!window.__teamsTarget || !document.contains(window.__teamsTarget)) {
+        installObserver();
+      }
+    } catch {}
+  }, 1500);
+}
+
+/** 8) 對外 API（Python 端會用到） */
+window.TeamsWatch = {
+  install: installObserver,                   // 回傳 'wired' 或 'not_found'
+  fetch: () => { const out = window.__teamsEvents.slice(); window.__teamsEvents.length = 0; return out; },
+  stop:  () => { try { window.__teamsObserver?.disconnect(); } catch{}; window.__teamsTarget=null; },
+  isAlive: () => !!(window.__teamsObserver && window.__teamsTarget && document.contains(window.__teamsTarget))
+};
+
+// 立即安裝一次
+TeamsWatch.install();
+
+
+--------------------------------------------
+
+逐段解譯（你真正需要理解的點）
+
+全域狀態
+
+__teamsEvents：一個先進先出的陣列（就像 queue）；每抓到一則新訊息就 push 進來。
+
+__teamsSeen：Set 用來去重（避免 DOM 反覆 patch 造成重複事件）。
+
+__teamsObserver / __teamsTarget：記住目前的觀測器和它綁定的「訊息清單」節點。
+
+深度查找
+
+Teams 會把內容放在open Shadow DOM 或 iframe 裡；一般的 querySelectorAll 看不到 shadowRoot 裡的元素，所以用 queryAllDeep 把 open shadow 也掃進去；另外多掃第一層 iframe。
+
+找到訊息清單容器
+
+透過多組 selector（data-tid*='messageList'、[role='list']…）找最大那塊當候選（通常就是訊息串）。
+
+會因版本/語系改變；如果你有更穩定的 data-tid，改成單一 selector 更好。
+
+萃取訊息內容
+
+getText / getSender / getTime 從不同 DOM 結構撈資料。
+
+如果遇到純圖片/貼圖沒有文字，預設會跳過（你可在這裡擴充從附件卡抓檔名/替代文字）。
+
+建去重的 id
+
+先用 DOM 自帶的 id（如果存在）；否則依 sender+text+time 算一個簡單 hash。
+
+hash 只要能在短期內避免重複就夠了，不是安全雜湊。
+
+安裝 MutationObserver
+
+observe(list, { childList:true, subtree:true })：只看新加入的子節點，效能好、干擾少。
+
+回呼裡只處理 addedNodes，將每個新增的訊息元素丟給 harvest()。
+
+安裝前先做一次初始掃描（避免剛跳進頁面時漏掉已渲染的最後幾則）。
+
+保活 / 自動重掛
+
+SPA 重新渲染時，舊容器會被移除，觀測器就失效；
+
+所以用 setInterval 每 1.5s 檢查 __teamsTarget 是否仍然在文件樹內，不在就重跑 installObserver()。
+
+對外 API（給 Selenium 用）
+
+TeamsWatch.install()：手動重掛。
+
+TeamsWatch.fetch()：取走並清空事件佇列（Python 每 2 秒打一次即可）。
+
+TeamsWatch.stop()：關閉觀測器。
+
+TeamsWatch.isAlive()：現在是否還連在有效容器上。
+
+----------------------------
+在 Selenium 端怎麼用（兩行就好）
+
+安裝（只需一次；或每次切頁面都丟一次也沒關係）
+
+driver.execute_script(JS_SNIPPET_ABOVE)  # 把上面整段 JS 當字串丟進去
+
+輪詢取事件
+
+events = driver.execute_script("return window.TeamsWatch ? TeamsWatch.fetch() : []")
+# events 是 [{id, sender, text, time, ts}, ...]
+
+
+實戰注意事項
+
+效能：只觀察 childList（新增），避免監聽屬性/文字變動，負擔最小。
+
+虛擬清單：Teams 會虛擬化舊訊息（捲動時載入/卸載 DOM），我們只關心「新增的」那幾則，所以沒問題。
+
+語系/DOM 變動：若你發現有時抓不到 sender 或 time，只要把 getSender/getTime 的 selector 再補一兩組就穩了（開 DevTools 看 data-tid 最準）。
+
+貼圖/附件：現在預設略過無文字的訊息；若要抓附件事件，可以在 harvest() 裡對 [data-tid*='attachment'] 額外取資訊（如檔名）。
+
+回聲問題：自動回覆前，請在 Python 端過濾掉你自己的 display name（或在 JS 裡就過濾），避免「自己觸發自己」。
+
+-------------------------------------------------------------------------------------
+
+
+把這段 JS 幫你嵌進 watcher.py 的 install_observer(driver)（直接替換），或加上附件偵測與更精準的 selector（貼你的 DOM 片段即可）
+
+下一步我可以直接把「監聽端可貼用的三個函式」打包給你（install_observer(driver) / fetch_events(driver) / is_observer_alive(driver)，內含我剛剛那段 MutationObserver JS），或是幫你把 sender 規則換成你的關鍵字清單。
+
+你想走哪個？
+
+A：我要「watcher.py 可直接貼上版」
+
+B：我要改「sender 自動回覆規則」（請給我關鍵字 → 回覆文字清單）
+
+C：同時做 A+B（也可以順便支援多群組 chatId 路由）
+
+太讚了！我把 A+B+C 一次整理好，直接可用。
+重點：同一台 Chrome（--remote-debugging-port=9992）、watcher 負責監聽並把事件 POST 到 sender、sender 依規則回覆，而且支援多群組/頻道路由（回到事件的來源 chat/channel）。
+
+
+------------------------------------------------------------------------
+
+A｜watcher.py（可同時監聽多個聊天或頻道）
+
+對每個目標開一個分頁 → 安裝 MutationObserver（含 open Shadow DOM、iframe 掃描）
+
+週期抓事件，附上路由資訊（chatId 或 channelId/groupId/tenantId）
+
+送到 sender_server.py 的 /event（一次可送多筆）
+
+把下段整個存成 watcher.py，改掉設定區即可。
+
+# watcher.py
+import time, json, os, urllib.request
+from urllib.parse import quote
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+# -------------- 設定區 --------------
+DEBUGGER_ADDRESS = "127.0.0.1:9992"
+CHROMEDRIVER_PATH = "chromedriver.exe"
+SENDER_ENDPOINT = "http://127.0.0.1:8765/event"   # sender_server.py 監聽位址
+SELF_NAME = None   # 你的 Teams 顯示名稱（若填，會在 watcher 端先過濾自己）
+
+POLL_INTERVAL = 2.0
+OUTFILE = "watch_log.ndjson"  # 留空則不寫檔
+
+# 同時監聽多個目標：type='chat' 或 'channel'
+TARGETS = [
+    {"type":"chat", "chat_id":"19:xxxxxxxxxxxxxxxx@thread.tacv2", "note":"專案群"},
+    # {"type":"channel", "channel_id":"19:yyyy@thread.tacv2", "group_id":"<teamId>", "tenant_id":"<tenantId>", "channel_name":"一般", "note":"開發群/一般"},
+]
+# -----------------------------------
+
+def _driver():
+    opts = webdriver.ChromeOptions()
+    opts.add_experimental_option("debuggerAddress", DEBUGGER_ADDRESS)
+    service = Service(CHROMEDRIVER_PATH)
+    d = webdriver.Chrome(service=service, options=opts)
+    d.implicitly_wait(0)
+    return d
+
+def _goto(drv, t):
+    if t["type"] == "chat":
+        url = f"https://teams.microsoft.com/_#/conversations/{t['chat_id']}?ctx=chat&web=1"
+    else:
+        url = ("https://teams.microsoft.com/l/channel/"
+               f"{t['channel_id']}/{quote(t['channel_name'])}"
+               f"?groupId={t['group_id']}&tenantId={t['tenant_id']}&web=1")
+    drv.get(url)
+    WebDriverWait(drv, 60).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
+
+MUTATION_JS = r"""
+// == TeamsWatch Minimal (with deep search & keepalive) ==
+if (!window.__teamsObserverInstalled) {
+  window.__teamsObserverInstalled = true;
+  window.__teamsEvents = [];
+  window.__teamsSeen = new Set();
+  window.__teamsObserver = null;
+  window.__teamsTarget = null;
+}
+function qAllDeep(root, sel){
+  const out = Array.from(root.querySelectorAll(sel));
+  const it = root.querySelectorAll('*');
+  for (const el of it) if (el.shadowRoot) out.push(...el.shadowRoot.querySelectorAll(sel));
+  if (root.shadowRoot) out.push(...root.shadowRoot.querySelectorAll(sel));
+  return out;
+}
+function qAllDocs(sel){
+  let arr = qAllDeep(document, sel);
+  if (arr.length) return arr;
+  for (const f of document.querySelectorAll('iframe')){
+    try{
+      const d = f.contentDocument || f.contentWindow?.document;
+      if (!d) continue;
+      arr = qAllDeep(d, sel);
+      if (arr.length) return arr;
+    }catch(e){}
+  }
+  return [];
+}
+function findList(){
+  const cands = ["[data-tid*='messageList']","[data-tid*='chat-message-list']","[aria-label*='messages list']","[aria-label*='訊息清單']","[role='list']"];
+  for (const s of cands){
+    const arr = qAllDocs(s);
+    if (arr.length){
+      arr.sort((a,b)=> (b.scrollHeight*b.scrollWidth)-(a.scrollHeight*a.scrollWidth));
+      return arr[0];
+    }
+  }
+  return null;
+}
+function getText(el){
+  const c = ["[data-tid*='messageContent']","[data-tid*='message-body']","[data-tid*='messageBody']","[data-tid*='text-content']","[role='document']",".chat-message-container"];
+  for (const s of c){
+    const t = el.querySelector(s) || (el.shadowRoot && el.shadowRoot.querySelector(s));
+    if (t && t.innerText) return t.innerText.trim();
+  }
+  return (el.innerText||"").trim();
+}
+function getSender(el){
+  const c = ["[data-tid*='messageAuthor']","[data-tid*='author-name']","[data-tid*='sender']","[aria-label*='said']","[aria-label*='說']"];
+  for (const s of c){
+    const t = el.querySelector(s) || (el.shadowRoot && el.shadowRoot.querySelector(s));
+    if (!t) continue;
+    if (t.innerText) return t.innerText.trim();
+    if (t.getAttribute) {
+      const al = t.getAttribute('aria-label');
+      if (al) return al;
+    }
+  }
+  return null;
+}
+function getTime(el){
+  const c = ["time[datetime]","[data-tid*='timestamp']","[data-tid*='messageTime']"];
+  for (const s of c){
+    const t = el.querySelector(s) || (el.shadowRoot && el.shadowRoot.querySelector(s));
+    if (!t) continue;
+    const dt = t.getAttribute && t.getAttribute('datetime');
+    if (dt) return dt;
+    if (t.innerText) return t.innerText.trim();
+  }
+  return new Date().toISOString();
+}
+function mkHash(sender, text, time){
+  const s = JSON.stringify({sender,text,time});
+  let h=0; for(let i=0;i<s.length;i++){ h=((h<<5)-h)+s.charCodeAt(i); h|=0; }
+  return "m_"+(h>>>0).toString(16);
+}
+function harvest(el){
+  const isMsg = el.matches?.("[role='listitem'], [data-tid*='message']");
+  const hasChild = el.querySelector?.("[role='listitem'], [data-tid*='message']");
+  if (!isMsg && !hasChild) return;
+  const items = isMsg ? [el] : Array.from(el.querySelectorAll("[role='listitem'], [data-tid*='message']"));
+  for (const it of items){
+    const text = getText(it); if (!text) continue;
+    const sender = getSender(it);
+    const time = getTime(it);
+    const id = (it.id && it.id.length? it.id : mkHash(sender,text,time));
+    if (window.__teamsSeen.has(id)) continue;
+    window.__teamsSeen.add(id);
+    window.__teamsEvents.push({id, sender, text, time, ts: Date.now()});
+  }
+}
+function install(){
+  if (window.__teamsObserver && window.__teamsTarget) { try{window.__teamsObserver.disconnect();}catch{} }
+  const list = findList();
+  if (!list) return 'not_found';
+  qAllDeep(list, "[role='listitem'], [data-tid*='message']").forEach(harvest);
+  const mo = new MutationObserver(muts=>{
+    for (const m of muts){
+      if (m.type==='childList' && m.addedNodes?.length){
+        m.addedNodes.forEach(n=>{ if(n.nodeType===1) harvest(n); });
+      }
+    }
+  });
+  mo.observe(list, {childList:true, subtree:true});
+  window.__teamsObserver = mo;
+  window.__teamsTarget = list;
+  return 'wired';
+}
+if (!window.__teamsKeepAlive){
+  window.__teamsKeepAlive = setInterval(()=>{
+    try{
+      if (!window.__teamsTarget || !document.contains(window.__teamsTarget)) install();
+    }catch(e){}
+  }, 1500);
+}
+window.TeamsWatch = {
+  install,
+  fetch: ()=>{ const out = window.__teamsEvents.slice(); window.__teamsEvents.length=0; return out; },
+  alive: ()=> !!(window.__teamsObserver && window.__teamsTarget && document.contains(window.__teamsTarget))
+};
+TeamsWatch.install();
+"""
+
+def _open_tab(drv):
+    drv.switch_to.new_window('tab')
+    return drv.current_window_handle
+
+def _post_events(batch):
+    if not batch: return
+    data = json.dumps(batch, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        SENDER_ENDPOINT, data=data,
+        headers={"Content-Type":"application/json; charset=utf-8"},
+        method="POST")
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        resp.read()
+
+def _route_info(drv):
+    href = drv.execute_script("return location.href")
+    info = {"url":href, "kind":"unknown"}
+    if "/conversations/" in href:
+        import re
+        m = re.search(r"/conversations/(19:[^/?#]+@thread\.tacv2)", href)
+        if m: info.update({"kind":"chat","chatId":m.group(1)})
+    elif "/l/channel/" in href:
+        from urllib.parse import urlparse, parse_qs, unquote
+        p = urlparse(href); q = parse_qs(p.query)
+        parts = p.path.split("/l/channel/",1)[1].split("/",1)
+        info.update({"kind":"channel","channelId":parts[0],"groupId":q.get("groupId",[None])[0],
+                     "tenantId":q.get("tenantId",[None])[0],
+                     "channelName": unquote(parts[1].split("?")[0]) if len(parts)>1 else None})
+    return info
+
+def main():
+    drv = _driver()
+    handles = []
+    metas = []   # 每個分頁對應的 target meta
+    for t in TARGETS:
+        h = _open_tab(drv)
+        _goto(drv, t)
+        drv.execute_script(MUTATION_JS)
+        handles.append(h); metas.append(t)
+
+    outfp = open(OUTFILE, "a", encoding="utf-8") if OUTFILE else None
+    try:
+        while True:
+            all_events = []
+            for h, meta in zip(handles, metas):
+                drv.switch_to.window(h)
+                # 拉事件（若 TeamsWatch 不在就重新安裝）
+                try:
+                    alive = drv.execute_script("return window.TeamsWatch && TeamsWatch.alive()")
+                except Exception:
+                    alive = False
+                if not alive:
+                    try: drv.execute_script(MUTATION_JS)
+                    except Exception: pass
+
+                try:
+                    evs = drv.execute_script("return window.TeamsWatch ? TeamsWatch.fetch() : []") or []
+                except Exception:
+                    evs = []
+
+                # 附上來源路由資訊 + 過濾自己
+                rinfo = _route_info(drv)
+                for ev in evs:
+                    if SELF_NAME and (ev.get("sender") or "").strip() == SELF_NAME.strip():
+                        continue
+                    ev["context"] = rinfo
+                    ev["note"] = meta.get("note")
+                    all_events.append(ev)
+
+            # 輸出/持久化
+            if all_events:
+                if outfp:
+                    for e in all_events:
+                        outfp.write(json.dumps(e, ensure_ascii=False) + "\n")
+                    outfp.flush()
+                # POST 給 sender（一次送一批較省事）
+                try:
+                    _post_events(all_events)
+                except Exception as e:
+                    print(f"[watcher] post failed: {e}")
+
+            time.sleep(POLL_INTERVAL)
+    except KeyboardInterrupt:
+        print("[watcher] stopped.")
+    finally:
+        if outfp: outfp.close()
+
+if __name__ == "__main__":
+    main()
+
+
+----------------------------------------------------------------------------------------------
+B＋C｜sender_server.py（規則化回覆＋多群組路由）
+
+接收 watcher 送來的事件（可單筆或陣列）
+
+支援規則引擎（contains/regex/startswith/equals，限定來源、冷卻時間）
+
+會依事件的 context 自動回到相同 chat 或 channel 再送出
+
+內建文本回覆；也提供圖片上傳與DataFrame→PNG→上傳（可按需啟用）
+把下段存成 sender_server.py，改掉設定區即可。
+
+--------------------------------------------------------------------------------------------
+
+# sender_server.py
+import json, re, time, threading, os
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+# -------- 設定區 --------
+DEBUGGER_ADDRESS = "127.0.0.1:9992"
+CHROMEDRIVER_PATH = "chromedriver.exe"
+BIND = ("127.0.0.1", 8765)
+
+SELF_NAME = "你的Teams顯示名稱"  # 建議填，防回聲
+
+# （可選）使用 DataFrame->PNG 需要 pandas + matplotlib
+ENABLE_PANDAS_IMAGE = False
+# ------------------------
+
+# ===== Selenium 基礎 =====
+_driver = None
+_send_lock = threading.Lock()
+
+def _ensure_driver():
+    global _driver
+    try:
+        if _driver is None:
+            opts = webdriver.ChromeOptions()
+            opts.add_experimental_option("debuggerAddress", DEBUGGER_ADDRESS)
+            service = Service(CHROMEDRIVER_PATH)
+            _driver = webdriver.Chrome(service=service, options=opts)
+            _driver.implicitly_wait(0)
+        else:
+            _driver.execute_script("return 1")
+    except Exception:
+        opts = webdriver.ChromeOptions()
+        opts.add_experimental_option("debuggerAddress", DEBUGGER_ADDRESS)
+        service = Service(CHROMEDRIVER_PATH)
+        _driver = webdriver.Chrome(service=service, options=opts)
+        _driver.implicitly_wait(0)
+
+def _open_chat(chat_id):
+    _driver.get(f"https://teams.microsoft.com/_#/conversations/{chat_id}?ctx=chat&web=1")
+    WebDriverWait(_driver, 60).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
+
+def _open_channel(channel_id, group_id, tenant_id, channel_name):
+    from urllib.parse import quote
+    url = ("https://teams.microsoft.com/l/channel/"
+           f"{channel_id}/{quote(channel_name)}"
+           f"?groupId={group_id}&tenantId={tenant_id}&web=1")
+    _driver.get(url)
+    WebDriverWait(_driver, 60).until(EC.presence_of_element_located((By.CSS_SELECTOR, "body")))
+
+def _find_compose(timeout=40):
+    end = time.time() + timeout
+    while time.time() < end:
+        els = _driver.find_elements(By.CSS_SELECTOR, "[contenteditable='true'][role='textbox']")
+        if els: return els[0]
+        iframes = _driver.find_elements(By.CSS_SELECTOR, "iframe")
+        for f in iframes:
+            try:
+                _driver.switch_to.default_content(); _driver.switch_to.frame(f)
+                els = _driver.find_elements(By.CSS_SELECTOR, "[contenteditable='true'][role='textbox']")
+                if els: return els[0]
+            except Exception: pass
+        _driver.switch_to.default_content()
+        time.sleep(0.2)
+    raise RuntimeError("找不到輸入框")
+
+def _send_text(text):
+    box = _find_compose(40)
+    box.click()
+    for line in text.split("\n"):
+        box.send_keys(line); box.send_keys(Keys.SHIFT, Keys.ENTER)
+    box.send_keys(Keys.BACK_SPACE)
+    try:
+        box.send_keys(Keys.ENTER)
+    except Exception:
+        btn = WebDriverWait(_driver, 10).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Send'], button[aria-label*='傳送'], button[aria-label*='發送']"))
+        )
+        btn.click()
+    WebDriverWait(_driver, 20).until(EC.presence_of_element_located((
+        By.CSS_SELECTOR, "[data-tid*='messageContent'], .chat-message-container"
+    )))
+
+# ===== 圖片上傳（含深度查找） =====
+def _q_all_deep(selector):
+    js = r"""
+const sel = arguments[0];
+function qAllDeep(root, s){
+  const out = Array.from(root.querySelectorAll(s));
+  const it = root.querySelectorAll('*');
+  for (const el of it) if (el.shadowRoot) out.push(...el.shadowRoot.querySelectorAll(s));
+  if (root.shadowRoot) out.push(...root.shadowRoot.querySelectorAll(s));
+  return out;
+}
+function allDocs(s){
+  let arr = qAllDeep(document, s);
+  if (arr.length) return arr;
+  for (const f of document.querySelectorAll('iframe')){
+    try{
+      const d = f.contentDocument || f.contentWindow?.document;
+      if (!d) continue;
+      arr = qAllDeep(d, s); if (arr.length) return arr;
+    }catch(e){}
+  }
+  return [];
+}
+return allDocs(sel);
+"""
+    return _driver.execute_script(js, selector)
+
+def _click_attach_if_needed():
+    try:
+      btn = WebDriverWait(_driver, 3).until(EC.element_to_be_clickable((
+        By.CSS_SELECTOR, "button[aria-label*='附加'], button[aria-label*='檔案'], button[aria-label='Attach'], [data-tid*='attach']"
+      )))
+      btn.click(); time.sleep(0.4)
+    except Exception:
+      pass
+
+def _upload_image(path):
+    _click_attach_if_needed()
+    inputs = _q_all_deep("input[type='file']")
+    if not inputs:
+        raise RuntimeError("找不到 input[type=file] 供上傳")
+    abs_path = os.path.abspath(path)
+    ok = False; last = None
+    for inp in inputs:
+        try:
+            inp.send_keys(abs_path); ok=True; break
+        except Exception as e:
+            last = e
+    if not ok:
+        raise RuntimeError(f"file input send_keys 失敗: {last}")
+    # 等縮圖（非必要）
+    try:
+        WebDriverWait(_driver, 15).until(EC.presence_of_element_located((
+            By.CSS_SELECTOR, "[data-tid*='filePreview'], [data-tid*='attachment'], [data-tid*='imagePreview'], [role='listitem'] img"
+        )))
+    except Exception:
+        pass
+
+def _send_image_with_caption(path, caption=None):
+    _upload_image(path)
+    if caption:
+        box = _find_compose(20)
+        box.click(); box.send_keys(caption)
+    try:
+        _find_compose(5).send_keys(Keys.ENTER)
+    except Exception:
+        btn = WebDriverWait(_driver, 10).until(
+            EC.element_to_be_clickable((By.CSS_SELECTOR, "button[aria-label='Send'], button[aria-label*='傳送'], button[aria-label*='發送']"))
+        )
+        btn.click()
+
+# =====（可選）DataFrame→PNG =====
+def _df_to_png_if_enabled(df, out_png, title=None, dpi=200):
+    if not ENABLE_PANDAS_IMAGE:
+        raise RuntimeError("ENABLE_PANDAS_IMAGE=False")
+    import pandas as pd
+    import matplotlib.pyplot as plt
+    n_rows, n_cols = df.shape
+    cell_h, cell_w = 0.6, 2.2
+    title_h = 0.6 if title else 0.2
+    fig_w = max(6, n_cols*cell_w); fig_h = max(2.5, n_rows*cell_h + title_h)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=dpi)
+    ax.axis("off")
+    tbl = ax.table(cellText=df.values, colLabels=df.columns, loc='center', cellLoc='center', colLoc='center')
+    tbl.auto_set_font_size(False); tbl.set_fontsize(10); tbl.scale(1, 1.25)
+    for (r,c), cell in tbl.get_celld().items():
+        if r==0: cell.set_text_props(weight='bold'); cell.set_facecolor("#f0f0f0")
+        cell.set_edgecolor("#ccc")
+    if title: ax.set_title(title, pad=10, fontsize=14, fontweight='bold')
+    os.makedirs(os.path.dirname(out_png), exist_ok=True) if os.path.dirname(out_png) else None
+    plt.tight_layout(); plt.savefig(out_png, bbox_inches='tight', dpi=dpi); plt.close(fig)
+    return out_png
+
+# ===== 規則系統 =====
+# 支援的匹配方法
+def match_contains(text, kw):    return kw in text
+def match_startswith(text, kw):  return text.startswith(kw)
+def match_equals(text, kw):      return text == kw
+def match_regex(text, pat):      return re.search(pat, text) is not None
+
+# 規則設定：你只要改這裡
+RULES = [
+    # 範例 1：含 #ping → 回 pong
+    {"name":"ping", "when":{"contains":"#ping"}, "reply":{"text":"pong"}, "cooldown_sec":3},
+    # 範例 2：報表日期 → 動態帶入
+    {"name":"report_date", "when":{"regex": r"^報表(\d{4}-\d{2}-\d{2})$"},
+     "reply":{"text":"已收到報表日期 {g1}，開始處理 ✅"}, "cooldown_sec":5},
+    # 範例 3：上傳示意圖（固定圖片）
+    # {"name":"upload_sample", "when":{"contains":"上傳表格"}, "reply":{"image":"sample.png", "caption":"最新表格快照"}, "cooldown_sec":10},
+]
+# 你也可以限制來源，例如限定某個 chatId：
+# 在規則加上 "only": {"chatId":"19:xxx@thread.tacv2"} 或 "only": {"channelId":"19:yyy@thread.tacv2"}
+
+_last_fire = {}  # (rule_name, scope_key) -> last_ts
+
+def _scope_key(ctx):
+    if ctx.get("kind")=="chat": return ("chat", ctx.get("chatId"))
+    if ctx.get("kind")=="channel": return ("channel", ctx.get("channelId"), ctx.get("groupId"), ctx.get("tenantId"))
+    return ("unknown",)
+
+def _apply_rule(ev, rule):
+    sender = (ev.get("sender") or "").strip()
+    if SELF_NAME and sender == SELF_NAME:       # 防回聲
+        return None
+
+    ctx = ev.get("context") or {}
+    only = rule.get("only")
+    if only:
+        # 嚴格比對限定來源
+        for k,v in only.items():
+            if ctx.get(k) != v: return None
+
+    text = (ev.get("text") or "")
+    cond = rule.get("when", {})
+    ok = False; match_groups = []
+    if "contains" in cond: ok = match_contains(text, cond["contains"])
+    elif "startswith" in cond: ok = match_startswith(text, cond["startswith"])
+    elif "equals" in cond: ok = match_equals(text, cond["equals"])
+    elif "regex" in cond:
+        m = re.search(cond["regex"], text)
+        ok = m is not None
+        if m: match_groups = [m.group(i) for i in range(1, m.lastindex+1)] if m.lastindex else []
+    if not ok: return None
+
+    # 冷卻時間（以 rule + 來源為作用域）
+    scope = _scope_key(ctx)
+    key = (rule["name"], scope)
+    now = time.time()
+    if now - _last_fire.get(key, 0) < rule.get("cooldown_sec", 0):
+        return None
+    _last_fire[key] = now
+
+    # 產生回覆
+    rep = rule.get("reply", {})
+    if "text" in rep:
+        msg = rep["text"]
+        # 支援 {g1}..{gN} 注入 regex 群組
+        for i, g in enumerate(match_groups, start=1):
+            msg = msg.replace(f"{ { } }".replace(" ", f"g{i}"), g)  # trick: avoid f-string confusion
+        return {"type":"text", "text": msg}
+    if "image" in rep:
+        return {"type":"image", "path": rep["image"], "caption": rep.get("caption")}
+    if "df_image" in rep:
+        # 需要你在動作裡組 df；這裡只演示樣板
+        return {"type":"df_image", "title": rep.get("title","報表"), "outfile":rep.get("outfile","out/table.png")}
+    return None
+
+def _act_reply(ctx, action):
+    # 切到來源 chat/channel
+    if ctx.get("kind")=="chat" and ctx.get("chatId"):
+        _open_chat(ctx["chatId"])
+    elif ctx.get("kind")=="channel":
+        _open_channel(ctx["channelId"], ctx["groupId"], ctx["tenantId"], ctx.get("channelName") or "一般")
+    else:
+        raise RuntimeError(f"unknown context: {ctx}")
+
+    t = action["type"]
+    if t=="text":
+        _send_text(action["text"])
+    elif t=="image":
+        _send_image_with_caption(action["path"], action.get("caption"))
+    elif t=="df_image":
+        if not ENABLE_PANDAS_IMAGE:
+            _send_text("(提示) 尚未啟用 DataFrame→PNG 功能。")
+            return
+        import pandas as pd
+        df = pd.DataFrame({"產品":["A","B","C"],"銷量":[12,18,9],"退貨率":[0.5,0.9,0.2]})
+        png = _df_to_png_if_enabled(df, action.get("outfile","out/table.png"), title=action.get("title"))
+        _send_image_with_caption(png, caption=action.get("title"))
+
+# ===== HTTP Server =====
+class Handler(BaseHTTPRequestHandler):
+    def _json(self, code, obj):
+        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        self.send_response(code); self.send_header("Content-Type","application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body))); self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        if urlparse(self.path).path != "/event":
+            return self._json(404, {"error":"not found"})
+        try:
+            n = int(self.headers.get("Content-Length","0")); raw = self.rfile.read(n)
+            payload = json.loads(raw.decode("utf-8"))
+        except Exception as e:
+            return self._json(400, {"error": f"bad json: {e}"})
+
+        events = payload if isinstance(payload, list) else [payload]
+        results = []
+        for ev in events:
+            try:
+                ctx = ev.get("context") or {}
+                action = None
+                for rule in RULES:
+                    action = _apply_rule(ev, rule)
+                    if action: break
+                if action:
+                    with _send_lock:
+                        _ensure_driver()
+                        _act_reply(ctx, action)
+                    results.append({"id": ev.get("id"), "replied": True})
+                else:
+                    results.append({"id": ev.get("id"), "replied": False})
+            except Exception as e:
+                results.append({"id": ev.get("id"), "error": str(e)})
+
+        return self._json(200, {"ok": True, "results": results})
+
+    def log_message(self, *args, **kwargs):
+        pass
+
+if __name__ == "__main__":
+    server = ThreadingHTTPServer(BIND, Handler)
+    print(f"sender_server listening on http://{BIND[0]}:{BIND[1]}/event")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("sender_server stopped.")
+-------------------------------------------------------------------------------
+
+使用方式（一步一步）
+
+先啟 sender_server.py
+python sender_server.py
+
+顯示：listening on http://127.0.0.1:8765/event
+
+再啟 watcher.py
+python watcher.py
+
+它會為 TARGETS 中每個目標開分頁、安裝監聽，抓到新訊息就送給 sender。
+
+測試規則（預設）
+
+在任何被監聽的群組/頻道輸入 #ping → 會回 pong
+
+輸入 報表2025-08-30 → 會回 已收到報表日期 2025-08-30，開始處理 ✅
+
+
+客製化要點
+
+加/改規則：在 sender_server.py 的 RULES 裡新增：
+
+when 用 contains / startswith / equals / regex 其一
+
+可加 "only": {"chatId":"19:...@thread.tacv2"} 限定某群
+
+回覆可 {"text": "..."} 或 {"image":"path", "caption":"..."}
+
+多群組路由：不用改；watcher 會把 context 帶上來，sender 會回到同一個 chat/channel。
+
+表格圖片：把 ENABLE_PANDAS_IMAGE=True，安裝 pandas、matplotlib 後即可使用 df_image 動作（上例已內建樣板）。
+
+
+
+--------------------------------------------------------------------------------
+
+為了把這套「監聽＋自動回覆」用得更穩、也更好維護，給你一個精簡的「上線化清單」—你挑要哪幾項，我就直接生檔給你：
+
+設定檔外置（config.yaml）
+
+把 TARGETS、RULES、SELF_NAME 都移出程式，免改碼就能調整。
+
+例：
+self_name: "你的Teams顯示名稱"
+targets:
+  - type: chat
+    chat_id: "19:xxxxxxxx@thread.tacv2"
+    note: "專案群"
+rules:
+  - name: ping
+    when: { contains: "#ping" }
+    reply: { text: "pong" }
+    cooldown_sec: 3
+
+啟動腳本 & 排程
+
+start_sender.bat / start_watcher.bat（Windows 一鍵啟動）
+
+附 Task Scheduler 的 .xml 範本：開機自動跑、意外結束自動重啟。
+
+日誌與可觀測性
+
+logs/*.ndjson 滾動日誌（watcher event、sender 動作、錯誤）。
+
+心跳檢查（每 N 分鐘自我回報到本機/你指定 webhook）。
+
+安全與防呆
+
+嚴格「來源白名單」（僅回特定 chatId/channelId）。
+
+雙層防回聲（watcher＋sender 都過濾 SELF_NAME）。
+
+Regex 沙盒＋冷卻時間（已內建，可依規則細調）。
+
+進階功能（可選）
+
+自動產圖（DataFrame→PNG）回貼報表。
+
+指令菜單（輸入 #help 回傳支援的關鍵字列表）。
+
+多群路由報表（sender 端彙整上一小時觸發統計）。
+
+你告訴我要【1/2/3/4/5】哪幾項，我就直接把對應的檔案與樣板貼給你（含 bat、xml、yaml 與最小改動程式段落），一次到位。
+
+
+--------------------------------------------------------------------------------
+沒問題！我把 1–5 全部打包成「可設定、可長期執行」的一套專案樣板。
+你只要把下面檔案逐一存成同一個資料夾（例如 teams-bot/），改 config.yaml 參數後直接執行即可。
+
+
+專案結構（建議）
+teams-bot/
+├─ config.yaml              # ① 設定檔（也支援 config.json）
+├─ sender_server.py         # ② 自動回覆伺服器（規則引擎 / 多群路由 / 進階功能）
+├─ watcher.py               # ② 監聽端（多分頁監聽 + 送事件到 sender）
+├─ start_sender.bat         # ② 一鍵啟動（Windows）
+├─ start_watcher.bat        # ② 一鍵啟動（Windows）
+├─ task_sender.xml          # ② 開機自動跑（排程器 XML）
+├─ task_watcher.xml         # ② 開機自動跑（排程器 XML）
+├─ logs/                    # ③ 日誌資料夾（NDJSON）
+└─ out/                     # ⑤ 產圖輸出資料夾（可選）
+
+
+① 設定檔（config.yaml）
+
+無外部依賴：若你環境不能裝套件，兩個程式都會自動改讀 config.json。要用 YAML 的話可 pip install pyyaml（選擇性）。
+# config.yaml
+self_name: "你的Teams顯示名稱"   # 用來過濾自己的訊息，強烈建議填
+
+logging:
+  dir: "logs"
+  watcher_event_file: "watcher_events.ndjson"
+  sender_action_file: "sender_actions.ndjson"
+  rotate_mb: 10        # 檔案超過 N MB 自動切檔（簡易版）
+
+watcher:
+  debugger_address: "127.0.0.1:9992"
+  chromedriver_path: "chromedriver.exe"
+  poll_interval_sec: 2.0
+  sender_endpoint: "http://127.0.0.1:8765/event"
+  targets:
+    - type: "chat"
+      chat_id: "19:xxxxxxxxxxxxxxxx@thread.tacv2"
+      note: "專案群"
+    # - type: "channel"
+    #   channel_id: "19:yyyyyyyyyyyyyyyy@thread.tacv2"
+    #   channel_name: "一般"
+    #   group_id: "00000000-1111-2222-3333-444444444444"
+    #   tenant_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    #   note: "開發群/一般"
+
+sender:
+  bind_host: "127.0.0.1"
+  bind_port: 8765
+  debugger_address: "127.0.0.1:9992"
+  chromedriver_path: "chromedriver.exe"
+
+  # ④ 安全白名單（強烈建議至少開啟你要回覆的 chat/channel）
+  whitelist:
+    chats: ["19:xxxxxxxxxxxxxxxx@thread.tacv2"]
+    channels:
+      - channel_id: "19:yyyyyyyyyyyyyyyy@thread.tacv2"
+        group_id: "00000000-1111-2222-3333-444444444444"
+        tenant_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+  # ③ 心跳（可選）：每 N 秒回報（webhook 不填則只寫日誌）
+  heartbeat:
+    enabled: true
+    interval_sec: 300
+    webhook: ""      # 例如 "http://127.0.0.1:8787/heartbeat"
+    note: "teams-bot-sender"
+
+  # ⑤ 進階：DataFrame→PNG 與 #help/#stats
+  enable_pandas_image: false
+
+rules:
+  # ⑤ 規則例子（可改成你的）
+  - name: ping
+    when: { contains: "#ping" }
+    reply: { text: "pong" }
+    cooldown_sec: 3
+
+  - name: report_date
+    when: { regex: "^報表(\\d{4}-\\d{2}-\\d{2})$" }
+    reply: { text: "已收到報表日期 {g1}，開始處理 ✅" }
+    cooldown_sec: 5
+
+  - name: help_menu
+    when: { equals: "#help" }
+    reply: { builtin: "help" }   # ⑤ 內建說明：列出所有規則
+
+  - name: stats1h
+    when: { equals: "#stats" }
+    reply: { builtin: "stats" }  # ⑤ 內建統計：近一小時觸發數
+
+  # - name: upload_table
+  #   when: { contains: "上傳表格" }
+  #   reply:
+  #     df_image: { title: "最新表格", outfile: "out/table.png" }  # 啟用時 sender.enable_pandas_image: true
+  #   cooldown_sec: 10
+
+
+---------------------------------------------------------------------------------
+
+② 啟動腳本（Windows）
+
+start_sender.bat
+
+@echo off
+cd /d %~dp0
+echo Starting sender_server.py ...
+python sender_server.py
+pause
+
+
+start_watcher.bat
+
+@echo off
+cd /d %~dp0
+echo Starting watcher.py ...
+python watcher.py
+pause
+
+
+② 排程器 XML（開機自動執行）
+
+請把 <Arguments> 裡 python 和路徑調成你的實際位置。匯入到「工作排程器」→ 動作：建立基本工作→ 匯入這個 XML。
+
+task_sender.xml
+
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Teams Sender Server (auto reply) on startup</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <Delay>PT10S</Delay>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>python</Command>
+      <Arguments>"C:\path\to\teams-bot\sender_server.py"</Arguments>
+      <WorkingDirectory>C:\path\to\teams-bot</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>
+
+task_watcher.xml
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Teams Watcher (listen new messages) on startup</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <Delay>PT15S</Delay>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>python</Command>
+      <Arguments>"C:\path\to\teams-bot\watcher.py"</Arguments>
+      <WorkingDirectory>C:\path\to\teams-bot</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>
+
+
+② watcher.py（多目標監聽 + MutationObserver + 送事件 + 日誌）
+
+已內嵌 Shadow DOM / iframe 深度監聽，會把每則新訊息附上 context（chatId 或 channelId）送到 sender。
+
+# watcher.py
+import os, time, json, urllib.request
+from urllib.parse import quote
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+# ---------- Config Loader (YAML/JSON) ----------
+def load_config():
+    for name in ("config.yaml","config.yml","config.json"):
+        if os.path.exists(name):
+            if name.endswith((".yaml",".yml")):
+                try:
+                    import yaml
+                    with open(name,"r",encoding="utf-8") as f:
+                        return yaml.safe_load(f)
+                except Exception as e:
+                    print(f"[watcher] YAML 解析失敗：{e}，改讀 JSON")
+            else:
+                with open(name,"r",encoding="utf-8") as f:
+                    return json.load(f)
+    raise SystemExit("找不到 config.yaml/.yml/.json")
+
+CFG = load_config()
+SELF_NAME = (CFG.get("self_name") or "").strip()
+WCFG = CFG["watcher"]
+L = CFG.get("logging", {})
+LOG_DIR = L.get("dir","logs")
+LOG_FILE = os.path.join(LOG_DIR, L.get("watcher_event_file","watcher_events.ndjson"))
+ROTATE_MB = int(L.get("rotate_mb", 10))
+
+def ensure_dir(p):
+    d = os.path.dirname(p)
+    if d and not os.path.exists(d): os.makedirs(d, exist_ok=True)
+
+def append_ndjson(path, obj):
+    ensure_dir(path)
+    # rotate
+    if os.path.exists(path) and (os.path.getsize(path) > ROTATE_MB*1024*1024):
+        base, ext = os.path.splitext(path)
+        ts = time.strftime("%Y%m%d-%H%M%S")
+        os.rename(path, f"{base}-{ts}{ext}")
+    with open(path,"a",encoding="utf-8") as fp:
+        fp.write(json.dumps(obj, ensure_ascii=False) + "\n")
+
+# ---------- Selenium ----------
+def new_driver():
+    opt = webdriver.ChromeOptions()
+    opt.add_experimental_option("debuggerAddress", WCFG["debugger_address"])
+    srv = Service(WCFG["chromedriver_path"])
+    d = webdriver.Chrome(service=srv, options=opt); d.implicitly_wait(0)
+    return d
+
+def open_target(drv, t):
+    if t["type"] == "chat":
+        url = f"https://teams.microsoft.com/_#/conversations/{t['chat_id']}?ctx=chat&web=1"
+    else:
+        url = ("https://teams.microsoft.com/l/channel/"
+               f"{t['channel_id']}/{quote(t['channel_name'])}"
+               f"?groupId={t['group_id']}&tenantId={t['tenant_id']}&web=1")
+    drv.get(url)
+    WebDriverWait(drv, 60).until(EC.presence_of_element_located((By.CSS_SELECTOR,"body")))
+
+MUTATION_JS = r"""
+// Minimal TeamsWatch (deep + keepalive)
+if (!window.__teamsObserverInstalled){
+  window.__teamsObserverInstalled=true; window.__teamsEvents=[]; window.__teamsSeen=new Set(); window.__teamsObserver=null; window.__teamsTarget=null;
+}
+function qAllDeep(root,sel){ const out=[...root.querySelectorAll(sel)]; const it=root.querySelectorAll('*');
+  for(const el of it) if(el.shadowRoot) out.push(...el.shadowRoot.querySelectorAll(sel));
+  if(root.shadowRoot) out.push(...root.shadowRoot.querySelectorAll(sel)); return out; }
+function qAllDocs(sel){
+  let arr=qAllDeep(document,sel); if(arr.length) return arr;
+  for(const f of document.querySelectorAll('iframe')){ try{ const d=f.contentDocument||f.contentWindow?.document; if(!d) continue; arr=qAllDeep(d,sel); if(arr.length) return arr; }catch(e){} }
+  return [];
+}
+function findList(){ const c=["[data-tid*='messageList']","[data-tid*='chat-message-list']","[aria-label*='messages list']","[aria-label*='訊息清單']","[role='list']"];
+  for(const s of c){ const arr=qAllDocs(s); if(arr.length){ arr.sort((a,b)=>(b.scrollHeight*b.scrollWidth)-(a.scrollHeight*a.scrollWidth)); return arr[0]; } } return null; }
+function getText(el){ const c=["[data-tid*='messageContent']","[data-tid*='message-body']","[data-tid*='messageBody']","[data-tid*='text-content']","[role='document']",".chat-message-container"];
+  for(const s of c){ const t=el.querySelector(s)||(el.shadowRoot&&el.shadowRoot.querySelector(s)); if(t&&t.innerText) return t.innerText.trim(); } return (el.innerText||"").trim(); }
+function getSender(el){ const c=["[data-tid*='messageAuthor']","[data-tid*='author-name']","[data-tid*='sender']","[aria-label*='said']","[aria-label*='說']"];
+  for(const s of c){ const t=el.querySelector(s)||(el.shadowRoot&&el.shadowRoot.querySelector(s));
+    if(!t) continue; if(t.innerText) return t.innerText.trim(); if(t.getAttribute){ const al=t.getAttribute('aria-label'); if(al) return al; } } return null; }
+function getTime(el){ const c=["time[datetime]","[data-tid*='timestamp']","[data-tid*='messageTime']"];
+  for(const s of c){ const t=el.querySelector(s)||(el.shadowRoot&&el.shadowRoot.querySelector(s)); if(!t) continue;
+    const dt=t.getAttribute&&t.getAttribute('datetime'); if(dt) return dt; if(t.innerText) return t.innerText.trim(); } return new Date().toISOString(); }
+function mkHash(a,b,c){ const s=JSON.stringify({a,b,c}); let h=0; for(let i=0;i<s.length;i++){ h=((h<<5)-h)+s.charCodeAt(i); h|=0; } return "m_"+(h>>>0).toString(16); }
+function harvest(el){ const isMsg=el.matches?.("[role='listitem'], [data-tid*='message']"); const hasChild=el.querySelector?.("[role='listitem'], [data-tid*='message']");
+  if(!isMsg && !hasChild) return; const items=isMsg?[el]:[...el.querySelectorAll("[role='listitem'], [data-tid*='message']")];
+  for(const it of items){ const text=getText(it); if(!text) continue; const sender=getSender(it); const time=getTime(it);
+    const id=(it.id && it.id.length? it.id : mkHash(sender,text,time)); if(window.__teamsSeen.has(id)) continue; window.__teamsSeen.add(id);
+    window.__teamsEvents.push({id, sender, text, time, ts: Date.now()}); } }
+function install(){ if(window.__teamsObserver&&window.__teamsTarget){ try{window.__teamsObserver.disconnect();}catch{} }
+  const list=findList(); if(!list) return 'not_found'; qAllDeep(list,"[role='listitem'], [data-tid*='message']").forEach(harvest);
+  const mo=new MutationObserver(muts=>{ for(const m of muts){ if(m.type==='childList'&&m.addedNodes?.length){ m.addedNodes.forEach(n=>{ if(n.nodeType===1) harvest(n); }); } } });
+  mo.observe(list,{childList:true,subtree:true}); window.__teamsObserver=mo; window.__teamsTarget=list; return 'wired'; }
+if(!window.__teamsKeepAlive){ window.__teamsKeepAlive=setInterval(()=>{ try{ if(!window.__teamsTarget || !document.contains(window.__teamsTarget)) install(); }catch(e){} },1500); }
+window.TeamsWatch={install, fetch:()=>{ const out=window.__teamsEvents.slice(); window.__teamsEvents.length=0; return out; }, alive:()=>!!(window.__teamsObserver&&window.__teamsTarget&&document.contains(window.__teamsTarget))};
+TeamsWatch.install();
+"""
+
+def route_info(drv):
+    href = drv.execute_script("return location.href")
+    info = {"url": href, "kind":"unknown"}
+    if "/conversations/" in href:
+        import re
+        m = re.search(r"/conversations/(19:[^/?#]+@thread\.tacv2)", href)
+        if m: info.update({"kind":"chat","chatId":m.group(1)})
+    elif "/l/channel/" in href:
+        from urllib.parse import urlparse, parse_qs, unquote
+        p = urlparse(href); q = parse_qs(p.query)
+        parts = p.path.split("/l/channel/",1)[1].split("/",1)
+        info.update({"kind":"channel","channelId":parts[0],
+                     "groupId":q.get("groupId",[None])[0],
+                     "tenantId":q.get("tenantId",[None])[0],
+                     "channelName": unquote(parts[1].split("?")[0]) if len(parts)>1 else None})
+    return info
+
+def post_events(batch):
+    data = json.dumps(batch, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(WCFG["sender_endpoint"], data=data,
+                                 headers={"Content-Type":"application/json; charset=utf-8"},
+                                 method="POST")
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        resp.read()
+
+def main():
+    d = new_driver()
+    handles, metas = [], []
+    for t in WCFG["targets"]:
+        d.switch_to.new_window('tab')
+        handles.append(d.current_window_handle)
+        metas.append(t)
+        open_target(d, t)
+        d.execute_script(MUTATION_JS)
+
+    try:
+        while True:
+            for h, meta in zip(handles, metas):
+                d.switch_to.window(h)
+                # 確認存活；不在就重裝
+                try:
+                    alive = d.execute_script("return window.TeamsWatch && TeamsWatch.alive()")
+                except Exception: alive = False
+                if not alive:
+                    try: d.execute_script(MUTATION_JS)
+                    except Exception: pass
+
+                # 取事件
+                try:
+                    evs = d.execute_script("return window.TeamsWatch ? TeamsWatch.fetch() : []") or []
+                except Exception:
+                    evs = []
+
+                if not evs:
+                    continue
+
+                ctx = route_info(d)
+                batch = []
+                for ev in evs:
+                    if SELF_NAME and (ev.get("sender") or "").strip() == SELF_NAME:
+                        continue
+                    ev["context"] = ctx
+                    ev["note"] = meta.get("note")
+                    append_ndjson(LOG_FILE, {"type":"event","ev":ev})
+                    batch.append(ev)
+
+                if batch:
+                    try: post_events(batch)
+                    except Exception as e:
+                        append_ndjson(LOG_FILE, {"type":"post_error","error":str(e)})
+            time.sleep(float(WCFG.get("poll_interval_sec", 2.0)))
+    except KeyboardInterrupt:
+        pass
+
+if __name__ == "__main__":
+    main()
+
+------------------------------------------------------------------------
+
+②＋④＋⑤ sender_server.py（規則引擎 / 多群路由 / 白名單 / 心跳 / #help / #stats / 產圖）
+
+# sender_server.py
+import os, json, re, time, threading, urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
+from collections import defaultdict, deque
+
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+# ---------- Config Loader ----------
+def load_config():
+    for name in ("config.yaml","config.yml","config.json"):
+        if os.path.exists(name):
+            if name.endswith((".yaml",".yml")):
+                try:
+                    import yaml
+                    with open(name,"r",encoding="utf-8") as f:
+                        return yaml.safe_load(f)
+                except Exception as e:
+                    print(f"[sender] YAML 解析失敗：{e}，改讀 JSON")
+            else:
+                with open(name,"r",encoding="utf-8") as f:
+                    return json.load(f)
+    raise SystemExit("找不到 config.yaml/.yml/.json")
+
+CFG = load_config()
+SELF_NAME = (CFG.get("self_name") or "").strip()
+SCFG = CFG["sender"]
+L = CFG.get("logging", {})
+LOG_DIR = L.get("dir","logs")
+LOG_FILE = os.path.join(LOG_DIR, L.get("sender_action_file","sender_actions.ndjson"))
+ROTATE_MB = int(L.get("rotate_mb", 10))
+
+def ensure_dir(p):
+    d = os.path.dirname(p)
+    if d and not os.path.exists(d): os.makedirs(d, exist_ok=True)
+
+def append_ndjson(path, obj):
+    ensure_dir(path)
+    if os.path.exists(path) and (os.path.getsize(path) > ROTATE_MB*1024*1024):
+        base, ext = os.path.splitext(path); ts = time.strftime("%Y%m%d-%H%M%S")
+        os.rename(path, f"{base}-{ts}{ext}")
+    with open(path,"a",encoding="utf-8") as fp:
+        fp.write(json.dumps(obj, ensure_ascii=False) + "\n")
+
+# ---------- Selenium ----------
+_driver = None
+_send_lock = threading.Lock()
+
+def ensure_driver():
+    global _driver
+    try:
+        if _driver is None:
+            opts = webdriver.ChromeOptions()
+            opts.add_experimental_option("debuggerAddress", SCFG["debugger_address"])
+            srv = Service(SCFG["chromedriver_path"])
+            _driver = webdriver.Chrome(service=srv, options=opts); _driver.implicitly_wait(0)
+        else:
+            _driver.execute_script("return 1")
+    except Exception:
+        opts = webdriver.ChromeOptions()
+        opts.add_experimental_option("debuggerAddress", SCFG["debugger_address"])
+        srv = Service(SCFG["chromedriver_path"])
+        _driver = webdriver.Chrome(service=srv, options=opts); _driver.implicitly_wait(0)
+
+def open_chat(chat_id):
+    _driver.get(f"https://teams.microsoft.com/_#/conversations/{chat_id}?ctx=chat&web=1")
+    WebDriverWait(_driver, 60).until(EC.presence_of_element_located((By.CSS_SELECTOR,"body")))
+
+def open_channel(channel_id, group_id, tenant_id, channel_name):
+    from urllib.parse import quote
+    url = ("https://teams.microsoft.com/l/channel/"
+           f"{channel_id}/{quote(channel_name or '一般')}"
+           f"?groupId={group_id}&tenantId={tenant_id}&web=1")
+    _driver.get(url)
+    WebDriverWait(_driver, 60).until(EC.presence_of_element_located((By.CSS_SELECTOR,"body")))
+
+def find_compose(timeout=40):
+    end = time.time() + timeout
+    while time.time() < end:
+        els = _driver.find_elements(By.CSS_SELECTOR, "[contenteditable='true'][role='textbox']")
+        if els: return els[0]
+        iframes = _driver.find_elements(By.CSS_SELECTOR, "iframe")
+        for f in iframes:
+            try:
+                _driver.switch_to.default_content(); _driver.switch_to.frame(f)
+                els = _driver.find_elements(By.CSS_SELECTOR, "[contenteditable='true'][role='textbox']")
+                if els: return els[0]
+            except Exception: pass
+        _driver.switch_to.default_content(); time.sleep(0.2)
+    raise RuntimeError("找不到輸入框")
+
+def send_text(text):
+    box = find_compose(40); box.click()
+    for line in text.split("\n"): box.send_keys(line); box.send_keys(Keys.SHIFT, Keys.ENTER)
+    box.send_keys(Keys.BACK_SPACE)
+    try: box.send_keys(Keys.ENTER)
+    except Exception:
+        btn = WebDriverWait(_driver, 10).until(EC.element_to_be_clickable((
+            By.CSS_SELECTOR, "button[aria-label='Send'], button[aria-label*='傳送'], button[aria-label*='發送']"
+        ))); btn.click()
+    WebDriverWait(_driver, 20).until(EC.presence_of_element_located((
+        By.CSS_SELECTOR, "[data-tid*='messageContent'], .chat-message-container"
+    )))
+
+# --- 深度找 file input 並上傳圖片 ---
+def q_all_deep(selector):
+    js = r"""
+const sel = arguments[0];
+function qAllDeep(root,s){ const out=[...root.querySelectorAll(s)]; const it=root.querySelectorAll('*');
+  for(const el of it) if(el.shadowRoot) out.push(...el.shadowRoot.querySelectorAll(s));
+  if(root.shadowRoot) out.push(...root.shadowRoot.querySelectorAll(s)); return out; }
+function allDocs(s){ let arr=qAllDeep(document,s); if(arr.length) return arr;
+  for(const f of document.querySelectorAll('iframe')){ try{ const d=f.contentDocument||f.contentWindow?.document; if(!d) continue; arr=qAllDeep(d,s); if(arr.length) return arr; }catch(e){} }
+  return []; }
+return allDocs(sel);
+"""
+    return _driver.execute_script(js, selector)
+
+def click_attach_if_needed():
+    try:
+        btn = WebDriverWait(_driver, 3).until(EC.element_to_be_clickable((
+          By.CSS_SELECTOR, "button[aria-label*='附加'], button[aria-label*='檔案'], button[aria-label='Attach'], [data-tid*='attach']"
+        ))); btn.click(); time.sleep(0.4)
+    except Exception: pass
+
+def upload_image(path):
+    click_attach_if_needed()
+    inputs = q_all_deep("input[type='file']")
+    if not inputs: raise RuntimeError("找不到 input[type=file]")
+    abs_path = os.path.abspath(path); last = None
+    for inp in inputs:
+        try: inp.send_keys(abs_path); break
+        except Exception as e: last = e
+    else:
+        raise RuntimeError(f"file input send_keys 失敗: {last}")
+    try:
+        WebDriverWait(_driver, 12).until(EC.presence_of_element_located((
+            By.CSS_SELECTOR, "[data-tid*='filePreview'], [data-tid*='attachment'], [data-tid*='imagePreview'], [role='listitem'] img"
+        )))
+    except Exception: pass
+
+def send_image_with_caption(path, caption=None):
+    upload_image(path)
+    if caption:
+        box = find_compose(20); box.click(); box.send_keys(caption)
+    try: find_compose(5).send_keys(Keys.ENTER)
+    except Exception:
+        btn = WebDriverWait(_driver, 10).until(EC.element_to_be_clickable((
+            By.CSS_SELECTOR, "button[aria-label='Send'], button[aria-label*='傳送'], button[aria-label*='發送']"
+        ))); btn.click()
+
+# --- 可選：DataFrame→PNG ---
+def df_to_png(df, out_png, title=None, dpi=200):
+    import matplotlib.pyplot as plt
+    n_rows, n_cols = df.shape; cell_h, cell_w = 0.6, 2.2
+    title_h = 0.6 if title else 0.2
+    fig_w = max(6, n_cols*cell_w); fig_h = max(2.5, n_rows*cell_h + title_h)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h), dpi=dpi); ax.axis("off")
+    tbl = ax.table(cellText=df.values, colLabels=df.columns, loc='center', cellLoc='center', colLoc='center')
+    tbl.auto_set_font_size(False); tbl.set_fontsize(10); tbl.scale(1, 1.25)
+    for (r,c), cell in tbl.get_celld().items():
+        if r==0: cell.set_text_props(weight='bold'); cell.set_facecolor("#f0f0f0")
+        cell.set_edgecolor("#ccc")
+    if title: ax.set_title(title, pad=10, fontsize=14, fontweight='bold')
+    os.makedirs(os.path.dirname(out_png), exist_ok=True) if os.path.dirname(out_png) else None
+    plt.tight_layout(); plt.savefig(out_png, bbox_inches='tight', dpi=dpi); plt.close(fig)
+    return out_png
+
+# ---------- 白名單檢查 ----------
+def in_whitelist(ctx):
+    wl = (SCFG.get("whitelist") or {})
+    if ctx.get("kind")=="chat":
+        return ctx.get("chatId") in (wl.get("chats") or [])
+    if ctx.get("kind")=="channel":
+        for c in (wl.get("channels") or []):
+            if (ctx.get("channelId")==c.get("channel_id")
+                and ctx.get("groupId")==c.get("group_id")
+                and ctx.get("tenantId")==c.get("tenant_id")):
+                return True
+        return False
+    return False
+
+# ---------- 規則引擎 & 內建回覆 (#help/#stats) ----------
+RULES = CFG.get("rules", [])
+
+def rule_list_text():
+    lines = ["可用指令 / 規則："]
+    for r in RULES:
+        cond = r.get("when", {})
+        desc = next((f"{k}={v}" for k,v in cond.items()), "（未定義）")
+        lines.append(f"- {r.get('name')}：{desc}")
+    return "\n".join(lines)
+
+# 簡易統計：近 1 小時觸發數
+_stats = deque(maxlen=5000)  # (ts, rule_name, scope_key)
+def push_stat(rule_name, ctx):
+    scope = ("chat", ctx.get("chatId")) if ctx.get("kind")=="chat" else ("channel", ctx.get("channelId"))
+    _stats.append((time.time(), rule_name, scope))
+
+def stats_1h_text():
+    now = time.time()
+    counts = defaultdict(int)
+    for ts, rname, scope in list(_stats):
+        if now - ts <= 3600:
+            counts[(rname, scope)] += 1
+    if not counts: return "近一小時沒有觸發紀錄。"
+    lines = ["近一小時觸發統計："]
+    for (rname, scope), n in counts.items():
+        lines.append(f"- {rname} @ {scope}: {n}")
+    return "\n".join(lines)
+
+def apply_rule(ev):
+    sender = (ev.get("sender") or "").strip()
+    if SELF_NAME and sender == SELF_NAME:
+        return None
+    ctx = ev.get("context") or {}
+    if not in_whitelist(ctx):
+        append_ndjson(LOG_FILE, {"type":"deny_non_whitelist","ctx":ctx})
+        return None
+
+    text = (ev.get("text") or "")
+    for r in RULES:
+        cond = r.get("when", {})
+        matched = False; groups=[]
+        if "contains" in cond: matched = cond["contains"] in text
+        elif "startswith" in cond: matched = text.startswith(cond["startswith"])
+        elif "equals" in cond: matched = text == cond["equals"]
+        elif "regex" in cond:
+            m = re.search(cond["regex"], text); matched = m is not None
+            if m and m.lastindex: groups = [m.group(i) for i in range(1, m.lastindex+1)]
+        if not matched: continue
+
+        # 冷卻（以規則 + 來源 scope 為單位）
+        scope = ("chat", ctx.get("chatId")) if ctx.get("kind")=="chat" else ("channel", ctx.get("channelId"), ctx.get("groupId"))
+        key = (r.get("name"), scope)
+        cooldown = int(r.get("cooldown_sec", 0))
+        now = time.time()
+        last = _cooldown.get(key, 0)
+        if now - last < cooldown:
+            return None
+        _cooldown[key] = now
+
+        # 內建回覆
+        rep = r.get("reply", {})
+        if rep.get("builtin") == "help":
+            return {"type":"text", "text": rule_list_text(), "rule": r.get("name")}
+        if rep.get("builtin") == "stats":
+            return {"type":"text", "text": stats_1h_text(), "rule": r.get("name")}
+
+        # 文字/圖片/表格圖片
+        if "text" in rep:
+            msg = rep["text"]
+            for i, g in enumerate(groups, 1):
+                msg = msg.replace(f"{{g{i}}}", g)
+            return {"type":"text", "text": msg, "rule": r.get("name")}
+        if "image" in rep:
+            return {"type":"image", "path": rep["image"], "caption": rep.get("caption"), "rule": r.get("name")}
+        if "df_image" in rep:
+            return {"type":"df_image", "title": rep["df_image"].get("title","報表"),
+                    "outfile": rep["df_image"].get("outfile","out/table.png"), "rule": r.get("name")}
+    return None
+
+_cooldown = {}  # (rule_name, scope) -> ts
+
+def act_reply(ctx, action):
+    # 路由到來源
+    if ctx.get("kind")=="chat" and ctx.get("chatId"): open_chat(ctx["chatId"])
+    elif ctx.get("kind")=="channel": open_channel(ctx["channelId"], ctx["groupId"], ctx["tenantId"], ctx.get("channelName"))
+    else: raise RuntimeError("未知 context")
+
+    t = action["type"]
+    if t=="text":
+        send_text(action["text"])
+    elif t=="image":
+        send_image_with_caption(action["path"], action.get("caption"))
+    elif t=="df_image":
+        if not SCFG.get("enable_pandas_image", False):
+            send_text("(提示) 尚未啟用 DataFrame→PNG。請在 config.yaml 打開 sender.enable_pandas_image。")
+        else:
+            try:
+                import pandas as pd
+                df = pd.DataFrame({"產品":["A","B","C"],"銷量":[12,18,9],"退貨率":[0.5,0.9,0.2]})
+                png = df_to_png(df, action.get("outfile","out/table.png"), title=action.get("title"))
+                send_image_with_caption(png, caption=action.get("title"))
+            except Exception as e:
+                send_text(f"(產圖失敗) {e}")
+
+# ---------- HTTP Server ----------
+class Handler(BaseHTTPRequestHandler):
+    def _json(self, code, obj):
+        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type","application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body))); self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        if urlparse(self.path).path == "/health":
+            return self._json(200, {"ok":True, "ts": time.time()})
+        if urlparse(self.path).path == "/stats":
+            return self._json(200, {"stats_text": stats_1h_text()})
+        return self._json(404, {"error":"not found"})
+
+    def do_POST(self):
+        if urlparse(self.path).path != "/event":
+            return self._json(404, {"error":"not found"})
+        try:
+            n = int(self.headers.get("Content-Length","0"))
+            raw = self.rfile.read(n)
+            payload = json.loads(raw.decode("utf-8"))
+        except Exception as e:
+            return self._json(400, {"error": f"bad json: {e}"})
+
+        events = payload if isinstance(payload, list) else [payload]
+        results = []
+        for ev in events:
+            try:
+                action = apply_rule(ev)
+                if action:
+                    with _send_lock:
+                        ensure_driver()
+                        act_reply(ev.get("context") or {}, action)
+                    push_stat(action.get("rule","?"), ev.get("context") or {})
+                    results.append({"id": ev.get("id"), "replied": True})
+                    append_ndjson(LOG_FILE, {"type":"reply","rule":action.get("rule"),"ev":ev})
+                else:
+                    results.append({"id": ev.get("id"), "replied": False})
+                    append_ndjson(LOG_FILE, {"type":"skip","ev":ev})
+            except Exception as e:
+                results.append({"id": ev.get("id"), "error": str(e)})
+                append_ndjson(LOG_FILE, {"type":"error","error":str(e),"ev":ev})
+        return self._json(200, {"ok": True, "results": results})
+
+    def log_message(self, *args, **kwargs):
+        pass
+
+# ---------- 心跳（③） ----------
+def heartbeat_loop():
+    cfg = SCFG.get("heartbeat") or {}
+    if not cfg.get("enabled"): return
+    interval = int(cfg.get("interval_sec", 300))
+    target = cfg.get("webhook","").strip()
+    note = cfg.get("note","teams-bot-sender")
+    while True:
+        payload = {"ok":True, "ts": time.time(), "note": note}
+        append_ndjson(LOG_FILE, {"type":"heartbeat","payload":payload})
+        if target:
+            try:
+                data = json.dumps(payload).encode("utf-8")
+                req = urllib.request.Request(target, data=data,
+                    headers={"Content-Type":"application/json"}, method="POST")
+                urllib.request.urlopen(req, timeout=5).read()
+            except Exception as e:
+                append_ndjson(LOG_FILE, {"type":"heartbeat_post_error","error":str(e)})
+        time.sleep(interval)
+
+if __name__ == "__main__":
+    t = threading.Thread(target=heartbeat_loop, daemon=True); t.start()
+    srv = ThreadingHTTPServer((SCFG["bind_host"], int(SCFG["bind_port"])), Handler)
+    print(f"sender_server listening on http://{SCFG['bind_host']}:{SCFG['bind_port']}/event")
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        print("sender_server stopped.")
+
+------------------------------------------------------------------------------------
+
+③ 日誌與可觀測性
+
+兩邊都寫 NDJSON 到 logs/，每行一個 JSON（容易 tail、grep、用 pandas 讀）。
+
+超過 rotate_mb 自動切檔（加上時間戳）。
+
+sender 另外提供 GET /health 與 GET /stats（快速檢查服務/統計）。
+
+----------------------------------------------------------------------------------
+
+④ 安全與防呆（白名單＋雙重防回聲）
+
+config.yaml > sender.whitelist 指定允許回覆的 chat/channel（其餘全部拒絕）。
+
+
+⑤ 進階功能
+
+#help：回覆目前所有規則（自動生成）。
+
+#stats：回覆近一小時每個規則的觸發數（依來源分 scope）。
+
+DataFrame→PNG：把 sender.enable_pandas_image: true，安裝 pandas、matplotlib 後
+，啟用 df_image 類型的回覆即可（範例已在 config.yaml）。
+
+watcher & sender 都會用 self_name 過濾自己發的訊息，防止回聲。
+
+
+-----------------------------------------------------------------------
+快速上線步驟
+
+先把 config.yaml 裡的 chat_id / channel_id / group_id / tenant_id、debugger_address、chromedriver_path 改成你的值。
+
+開啟 sender_server.py：python sender_server.py
+
+開啟 watcher.py：python watcher.py
+
+在被監聽的群組輸入 #ping、#help、#stats 測試。
+
+------------------------------------------------------------------------
+
+要我幫你把整套「可直接跑」的 config.yaml 填好也行—給我這三樣就能生成：
+
+你的 Teams 顯示名稱（self_name，用來防回聲）
+
+監聽目標：
+
+聊天：chatId（像 19:...@thread.tacv2）
+
+或頻道連結（含 channelId / groupId / tenantId / channelName）
+
+想要的 關鍵字／正則 → 回覆 清單（要不要限定在特定群組也一起說）
+
+同時附上超短「起跑清單」再確認一下即可：
+
+已用 --remote-debugging-port=9992 啟動/附著 Chrome，且已登入 teams.microsoft.com
+
+config.yaml：填好 watcher.targets、sender.whitelist、rules
+
+先跑 sender_server.py，再跑 watcher.py
+
+在群組測 #ping、#help、#stats 看回覆是否正確
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

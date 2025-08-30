@@ -1,0 +1,445 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/28.0.6 Chrome/138.0.7204.100 Electron/37.2.3 Safari/537.36" version="28.0.6" pages="10">
+  <diagram id="page-1" name="1) 全域架構（加強版）">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1400" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="3" value="Teams 自動監聽＋自動回覆｜全域架構" style="rounded=1;whiteSpace=wrap;html=1;fontStyle=1;fontSize=18;fillColor=#e6f7ff;strokeColor=#69c0ff;" vertex="1" parent="1">
+          <mxGeometry x="40" y="20" width="700" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="config.yaml&#xa;• self_name&#xa;• watcher.targets&#xa;• sender.whitelist&#xa;• rules&#xa;• logging/heartbeat" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1f0ff;strokeColor=#2f54eb;" vertex="1" parent="1">
+          <mxGeometry x="40" y="120" width="360" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="start_watcher.bat / start_sender.bat&#xa;（手動一鍵啟動）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffbe6;strokeColor=#d4b106;" vertex="1" parent="1">
+          <mxGeometry x="40" y="300" width="360" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="Windows Task Scheduler (task_*.xml)&#xa;• 登入自啟&#xa;• 失敗自動重啟(3次/60s)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffbe6;strokeColor=#ffec3d;" vertex="1" parent="1">
+          <mxGeometry x="40" y="410" width="360" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="7" value="watcher.py&#xa;• 多分頁監聽&#xa;• TeamsWatch 注入&#xa;• 批次 POST /event" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f9f0ff;strokeColor=#9254de;" vertex="1" parent="1">
+          <mxGeometry x="440" y="120" width="360" height="160" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="sender_server.py&#xa;• HTTP 伺服器&#xa;• 白名單+規則引擎&#xa;• 送文字/圖片/DF→PNG" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff1f0;strokeColor=#f5222d;" vertex="1" parent="1">
+          <mxGeometry x="440" y="320" width="360" height="210" as="geometry" />
+        </mxCell>
+        <mxCell id="9" value="Chrome（remote‑debugging 9992）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eaffea;strokeColor=#389e0d;" vertex="1" parent="1">
+          <mxGeometry x="840" y="120" width="460" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="10" value="Teams 分頁 #1（目標 A）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f6ffed;strokeColor=#73d13d;" vertex="1" parent="1">
+          <mxGeometry x="840" y="210" width="460" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="11" value="Teams 分頁 #N（目標 B..N）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f6ffed;strokeColor=#73d13d;" vertex="1" parent="1">
+          <mxGeometry x="840" y="290" width="460" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="12" value="TeamsWatch (MutationObserver)&#xa;• 深度查找 shadow/iframe&#xa;• 抽取 sender/text/time&#xa;• 去重 hash → 事件佇列" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff0f6;strokeColor=#eb2f96;" vertex="1" parent="1">
+          <mxGeometry x="840" y="380" width="460" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="13" value="logs/watcher_events.ndjson&#xa;• 每行一事件&#xa;• 超過 rotate_mb 自動切檔" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#8c8c8c;" vertex="1" parent="1">
+          <mxGeometry x="40" y="560" width="360" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="14" value="logs/sender_actions.ndjson&#xa;• 回覆/略過/錯誤記錄&#xa;• 心跳與統計" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#8c8c8c;" vertex="1" parent="1">
+          <mxGeometry x="440" y="560" width="360" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="15" value="/health /stats&#xa;• 活性檢查&#xa;• 近 1h 規則觸發數" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6fffb;strokeColor=#13c2c2;" vertex="1" parent="1">
+          <mxGeometry x="840" y="560" width="460" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="16" value="讀取設定" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="4" target="7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="17" value="讀取設定" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="4" target="8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="18" value="啟動" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="5" target="7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="19" value="啟動" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="5" target="8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="20" value="匯入/自動啟動" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="6" target="5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="21" value="附著 WebDriver" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="7" target="9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="22" value="開分頁 (每目標 1 分頁)" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="7" target="10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="23" value="開分頁 (每目標 1 分頁)" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="7" target="11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="24" value="注入 JS" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="7" target="12">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="25" value="批次 fetch 事件" style="endArrow=block;dashed=1;html=1;" edge="1" parent="1" source="12" target="7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="26" value="POST /event" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="7" target="8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="27" value="落地" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="7" target="13">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="28" value="落地" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="8" target="14">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="29" value="提供" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="8" target="15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="page-2" name="2) 監聽端初始化與多分頁管理">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1400" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="3" value="啟動 watcher.py" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d6e4ff;strokeColor=#597ef7;" vertex="1" parent="1">
+          <mxGeometry x="60" y="40" width="260" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="讀取 config.yaml → watcher.*" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="120" width="320" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="附著 Chrome (9992) → 建立 WebDriver" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="210" width="420" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="迭代 targets：每個目標" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="300" width="320" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="7" value="switch_to.new_window(&#39;tab&#39;)" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="390" width="360" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="導向 Deep Link（&amp;web=1）" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="480" width="360" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="9" value="注入 TeamsWatch（見第 3 頁）" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="570" width="360" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="10" value="主循環：每 poll_interval 秒" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="660" width="360" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="11" value="alive()？ → 若失效 install()" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="500" y="660" width="360" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="12" value="events = fetch()" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="750" width="260" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="13" value="附加 context（chatId / channelId…）" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="360" y="750" width="440" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="14" value="過濾 SELF_NAME（自己）" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="840" y="750" width="300" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="15" value="寫 watcher_events.ndjson" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="840" width="340" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="16" value="POST /event → sender（可批次）" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="420" y="840" width="380" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="17" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="3" target="4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="18" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="4" target="5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="19" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="5" target="6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="20" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="6" target="7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="21" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="7" target="8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="22" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="8" target="9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="23" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="9" target="10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="24" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="10" target="11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="25" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="10" target="12">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="26" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="12" target="13">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="27" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="13" target="14">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="28" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="14" target="16">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="29" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="13" target="15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="30" value="備註：&#xa;• 多分頁隔離每個目標，避免互搶。&#xa;• Deep Link 強制走 Web 版（&amp;web=1）。&#xa;• 失效常見：React 重渲染、iframe 變動 → 定時 reinstall。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#8c8c8c;" vertex="1" parent="1">
+          <mxGeometry x="1260" y="120" width="820" height="200" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="page-3" name="3) MutationObserver 詳細">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1400" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="3" value="查找訊息清單容器" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff0f6;strokeColor=#eb2f96;" vertex="1" parent="1">
+          <mxGeometry x="60" y="40" width="360" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="selectors（多版本容錯）&#xa;• [data-tid*=&#39;messageList&#39;]&#xa;• [data-tid*=&#39;chat-message-list&#39;]&#xa;• [aria-label*=&#39;messages list&#39;] / &#39;訊息清單&#39;&#xa;• [role=&#39;list&#39;]" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="120" width="360" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="深度查找（open shadow + 第一層 iframe）" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="460" y="40" width="520" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="初始掃描：已有訊息 harvest()" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="320" width="360" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="7" value="安裝 MutationObserver&#xa;• childList=true, subtree=true&#xa;• 只處理 addedNodes" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="460" y="120" width="520" height="150" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="harvest(it)：&#xa;• getSender / getText / getTime&#xa;• id = DOM id 或 hash(sender+text+time)&#xa;• __teamsSeen 去重&#xa;• push → __teamsEvents" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="460" y="290" width="520" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="9" value="keepalive：&#xa;• setInterval 每 1.5s&#xa;• 若容器不存在 → reinstall()" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="410" width="360" height="110" as="geometry" />
+        </mxCell>
+        <mxCell id="10" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="3" target="4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="11" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="3" target="5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="12" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="5" target="7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="13" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="6" target="8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="14" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="7" target="8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="15" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="9" target="3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="16" value="提示：&#xa;• 無文字的純圖片/附件可在 harvest() 擴充解析。&#xa;• 關鍵在『多組 selector + 深度查找 + 去重』確保穩定。" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#8c8c8c;" vertex="1" parent="1">
+          <mxGeometry x="60" y="560" width="920" height="140" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="page-4" name="4) 事件傳遞與佇列（含重試）">
+    <mxGraphModel dx="1426" dy="849" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1400" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="3" value="批次聚合：每個分頁 events[]" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="60" y="40" width="340" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="附加 context（chatId / channelId+groupId+tenantId / url / note）" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="60" y="130" width="620" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="寫入 watcher_events.ndjson" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="60" y="240" width="340" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="HTTP POST /event（array）" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6fffb;strokeColor=#13c2c2;" parent="1" vertex="1">
+          <mxGeometry x="60" y="320" width="340" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="7" value="失敗重試策略（建議）：&#xa;• 指數退避 1s,2s,4s,最大30s&#xa;• 最多 5 次 → 落地 post_error&#xa;• 仍失敗：稍後由下一批再嘗試" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="580" y="40" width="560" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="安全與隱私：&#xa;• 僅傳必要欄位（sender/text/time/context）&#xa;• 不含 cookies/token（純前端萃取）" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="460" y="260" width="560" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="9" value="" style="endArrow=block;html=1;rounded=0;" parent="1" source="3" target="4" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="10" value="" style="endArrow=block;html=1;rounded=0;" parent="1" source="4" target="5" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="11" value="" style="endArrow=block;html=1;rounded=0;" parent="1" source="5" target="6" edge="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="page-5" name="5) 自動回覆伺服器請求處理">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1400" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="3" value="HTTP 伺服器啟動&#xa;/health /stats /event" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="40" width="360" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="POST /event 收件&#xa;• 單筆或陣列 JSON&#xa;• 逐筆處理" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="140" width="360" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="白名單檢查 in_whitelist(context)&#xa;• chatId 或 channelId+groupId+tenantId" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7e6;strokeColor=#fa8c16;" vertex="1" parent="1">
+          <mxGeometry x="60" y="260" width="520" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="規則匹配 apply_rule(ev)&#xa;• contains / startswith / equals / regex&#xa;• 可加 only 限定來源&#xa;• 自帶內建：help / stats" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="370" width="620" height="140" as="geometry" />
+        </mxCell>
+        <mxCell id="7" value="冷卻時間（rule+scope）&#xa;• scope = chat 或 channel&#xa;• 避免洗版" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="530" width="360" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="action 產生&#xa;• text / image / df_image" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="650" width="360" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="9" value="(鎖) ensure_driver() → open_chat/channel → send" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6fffb;strokeColor=#13c2c2;" vertex="1" parent="1">
+          <mxGeometry x="60" y="750" width="680" height="100" as="geometry" />
+        </mxCell>
+        <mxCell id="10" value="落地 sender_actions.ndjson&#xa;更新統計（近 1h）" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="870" width="460" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="11" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="3" target="4">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="12" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="4" target="5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="13" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="5" target="6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="14" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="6" target="7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="15" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="7" target="8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="16" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="8" target="9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="17" value="" style="endArrow=block;html=1;rounded=0;" edge="1" parent="1" source="9" target="10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="page-6" name="6) 規則引擎詳解 &amp; 冷卻">
+    <mxGraphModel dx="1426" dy="849" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1400" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="3" value="規則結構（config.yaml → rules）" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="60" y="40" width="360" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="&#xa;- name: report_date&#xa;  when: { regex: &quot;^報表(\\d{4}-\\d{2}-\\d{2})$&quot; }&#xa;  reply: { text: &quot;已收到報表日期 {g1}&quot; }&#xa;  cooldown_sec: 5&#xa;  # 可選 only 限定來源&#xa;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fafafa;strokeColor=#8c8c8c;" parent="1" vertex="1">
+          <mxGeometry x="60" y="110" width="560" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="匹配模式" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="660" y="40" width="460" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="• contains: 子字串&#xa;• startswith / equals&#xa;• regex: 支援群組（{g1} 注入）&#xa;• 內建回覆：help / stats" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="660" y="170" width="460" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="7" value="冷卻機制" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="60" y="320" width="360" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="key = (rule_name, scope)&#xa;scope = chatId 或 channelId&#xa;now - last_ts &gt;= cooldown_sec → 才執行" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="60" y="400" width="560" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="9" value="安全建議" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="660" y="320" width="460" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="10" value="• 預設拒絕：白名單外不回&#xa;• 避免危險 regex（過長耗時）&#xa;• 大量事件 → 加上全域節流" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="660" y="400" width="460" height="120" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="page-7" name="7) 回覆動作詳解（文字/圖片/表格）">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1400" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="3" value="文字 Text" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="40" width="320" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="• compose.click() → send_keys()&#xa;• Enter=換行？→找送出按鈕&#xa;• 送出後等待訊息出現" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="130" width="520" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="圖片 Image（附件）" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="270" width="320" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="• 點『附加』使 &lt;input type=file&gt; 掛載&#xa;• 深度查找 shadow/iframe 的 file input&#xa;• send_keys(abs_path)&#xa;• 等縮圖預覽（非必須）&#xa;• 可附加 caption 再送" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="360" width="640" height="180" as="geometry" />
+        </mxCell>
+        <mxCell id="7" value="表格圖片 DF→PNG" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="560" width="320" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="• pandas+matplotlib 產生 table 圖片&#xa;• 儲存到 out/*.png&#xa;• 走圖片上傳流程送出" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="650" width="520" height="120" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="page-8" name="8) 送訊息穩定性（ensure_alive / compose 探測）">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1400" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="3" value="ensure_alive 檢查點" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f6ffed;strokeColor=#52c41a;" vertex="1" parent="1">
+          <mxGeometry x="60" y="40" width="420" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="1) WebDriver 可用（execute_script ok）&#xa;2) location.origin 包含 teams.microsoft.com&#xa;3) 同源 ping（fetch HEAD /_?web=1）&#xa;4) URL 路由符合目標 chat/channel&#xa;5) 找到可互動 compose（editable &amp; !disabled &amp; 可見）" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="130" width="720" height="200" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="復原策略" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="350" width="360" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="• 導向目標 Deep Link (&amp;web=1)&#xa;• 等待 body 載入&#xa;• 重試 N 次；仍失敗 → 回報" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="440" width="520" height="130" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="page-9" name="9) 日誌 / 心跳 / 可觀測性">
+    <mxGraphModel dx="1200" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1400" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="3" value="watcher_events.ndjson" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="40" width="360" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="• event + context + note&#xa;• post_error 重試資訊&#xa;• rotate_mb 超過即切檔" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="130" width="520" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="sender_actions.ndjson" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="280" width="360" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="• reply/skip/error 記錄&#xa;• 規則名稱、來源 scope&#xa;• 心跳/統計輸出" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="370" width="520" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="7" value="健康檢查與統計" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="520" width="360" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="• GET /health 回 200/ts&#xa;• GET /stats 回近 1h 統計文字&#xa;• （可選）定時 POST 心跳至自家 webhook" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="610" width="700" height="120" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="page-10" name="10) 啟動與故障排除（FAQ）">
+    <mxGraphModel dx="1426" dy="849" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2200" pageHeight="1400" background="#ffffff" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="3" value="啟動路徑" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="60" y="40" width="360" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="• 先啟 sender_server.py → listening /event&#xa;• 後啟 watcher.py → 每目標開分頁 wired&#xa;• 測試 #ping / #help / #stats" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="60" y="130" width="680" height="130" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="常見問題" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="60" y="280" width="360" height="80" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="• 抓不到訊息：補強 selectors（看 data-tid）&#xa;• 圖片不上傳：先點『附加』再找 file input&#xa;• 變成換行：找送出按鈕 click&#xa;• 登入跳轉：需要手動過 MFA / 保活&#xa;• closed shadow DOM：以 UI 點擊流程繞過" style="rounded=1;whiteSpace=wrap;html=1;" parent="1" vertex="1">
+          <mxGeometry x="60" y="370" width="980" height="220" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
