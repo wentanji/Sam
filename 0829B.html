@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Electron main.js Hook 全管道攔截技術說明文件</title>
+  <style>
+    :root {
+      --bg-primary: #0f172a;
+      --bg-secondary: #1e293b;
+      --bg-card: #0f172a;
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #0284c7;
+      --border: #334155;
+      --code-bg: #090d16;
+      --tag-login: #38bdf8;
+      --tag-send: #4ade80;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.6;
+      padding: 2rem 1rem;
+    }
+
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+
+    header {
+      margin-bottom: 2.5rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 1.5rem;
+    }
+
+    h1 {
+      font-size: 2rem;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+    }
+
+    p.subtitle {
+      color: var(--text-secondary);
+      font-size: 1rem;
+    }
+
+    section {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    h2 {
+      font-size: 1.35rem;
+      margin-bottom: 1rem;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      border-left: 4px solid var(--accent);
+      padding-left: 0.75rem;
+    }
+
+    h3 {
+      font-size: 1.1rem;
+      margin: 1.25rem 0 0.5rem 0;
+      color: var(--accent);
+    }
+
+    ul, ol {
+      margin-left: 1.5rem;
+      margin-bottom: 1rem;
+      color: var(--text-secondary);
+    }
+
+    li {
+      margin-bottom: 0.4rem;
+    }
+
+    li strong {
+      color: var(--text-primary);
+    }
+
+    .code-block {
+      position: relative;
+      background-color: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow-x: auto;
+      margin: 1rem 0;
+    }
+
+    pre {
+      font-family: "Fira Code", Consolas, Monaco, "Courier New", monospace;
+      font-size: 0.875rem;
+      padding: 1.25rem;
+      color: #e2e8f0;
+      line-height: 1.5;
+    }
+
+    .diagram {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.25rem;
+      font-family: monospace;
+      color: #38bdf8;
+      white-space: pre;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      line-height: 1.4;
+      margin: 1rem 0;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1rem 0;
+      font-size: 0.9rem;
+    }
+
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.75rem;
+      text-align: left;
+    }
+
+    th {
+      background-color: rgba(255, 255, 255, 0.05);
+      color: var(--text-primary);
+    }
+
+    td {
+      color: var(--text-secondary);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: bold;
+      text-transform: uppercase;
+    }
+
+    .badge-login {
+      background-color: rgba(56, 189, 248, 0.15);
+      color: var(--tag-login);
+      border: 1px solid var(--tag-login);
+    }
+
+    .badge-send {
+      background-color: rgba(74, 222, 128, 0.15);
+      color: var(--tag-send);
+      border: 1px solid var(--tag-send);
+    }
+
+    .footer {
+      text-align: center;
+      padding: 2rem 0;
+      color: var(--text-secondary);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <h1>Electron main.js Hook 架構說明文件</h1>
+    <p class="subtitle">涵蓋全管道攔截腳本、執行生命週期流程以及登入與資料發送事件偵測機制</p>
+  </header>
+
+  <!-- 程式碼區塊 -->
+  <section>
+    <h2>1. 完整 Hook 腳本程式碼 (hook_main.js)</h2>
+    <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 0.5rem;">
+      採用 Monkey Patching 模式注入 Node.js 核心與 Electron SDK，不損壞原程式執行邏輯。
+    </p>
+    <div class="code-block">
+      <pre><code>const fs = require('fs');
+const path = require('path');
+const http = require('http');
+const https = require('https');
+const { app, ipcMain, session } = require('electron');
+
+// ==========================================
+// 1. 日誌模組：非阻塞非同步寫入與防循環引用序列化
+// ==========================================
+const LOG_DIR = 'D:\\logs';
+const LOG_FILE = path.join(LOG_DIR, 'electron_hook_audit.jsonl');
+
+if (!fs.existsSync(LOG_DIR)) {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+}
+
+function safeStringify(obj) {
+  const cache = new Set();
+  return JSON.stringify(obj, (key, value) => {
+    if (typeof value === 'object' && value !== null) {
+      if (cache.has(value)) return '[Circular]';
+      cache.add(value);
+    }
+    return value;
+  });
+}
+
+function writeLog(category, data) {
+  const logEntry = {
+    timestamp: new Date().toISOString(),
+    category,
+    ...data
+  };
+  const logLine = safeStringify(logEntry) + '\n';
+  fs.appendFile(LOG_FILE, logLine, (err) => {
+    if (err) console.error('[HOOK ERROR] Write log failed:', err);
+  });
+}
+
+// ==========================================
+// 2. 特徵匹配庫：用於自動判定登入與資料發送事件
+// ==========================================
+const PATTERNS = {
+  loginEndpoints: ['/login', '/auth', '/authenticate', '/token', '/user/sign-in', '/api/v1/session'],
+  sendEndpoints: ['/send', '/message', '/chat/send', '/post/publish', '/api/v1/msg', '/upload'],
+  loginIpcChannels: ['login', 'user-login', 'auth-request', 'get-user-info', 'do-login'],
+  sendIpcChannels: ['send-message', 'chat-send', 'post-payload', 'push-data', 'submit-form'],
+  authKeywords: ['password', 'token', 'access_token', 'authorization', 'bearer', 'credential']
+};
+
+// ==========================================
+// 3. Hook 1: IPC 通訊層 (Main <-> Renderer 通訊)
+// ==========================================
+function hookIPC() {
+  // 攔截 ipcMain.on (單向事件監聽)
+  const originalOn = ipcMain.on;
+  ipcMain.on = function (channel, listener) {
+    const wrappedListener = (event, ...args) => {
+      analyzeIpcEvent('IPC_ON', channel, args);
+      return listener(event, ...args);
+    };
+    return originalOn.call(this, channel, wrappedListener);
+  };
+
+  // 攔截 ipcMain.handle (雙向 Promise 呼叫)
+  const originalHandle = ipcMain.handle;
+  ipcMain.handle = function (channel, listener) {
+    const wrappedListener = async (event, ...args) => {
+      analyzeIpcEvent('IPC_HANDLE_REQ', channel, args);
+      try {
+        const result = await listener(event, ...args);
+        analyzeIpcResult('IPC_HANDLE_RES', channel, result);
+        return result;
+      } catch (err) {
+        writeLog('IPC_ERROR', { channel, error: err.message });
+        throw err;
+      }
+    };
+    return originalHandle.call(this, channel, wrappedListener);
+  };
+}
+
+function analyzeIpcEvent(type, channel, args) {
+  const channelLower = channel.toLowerCase();
+  const isLogin = PATTERNS.loginIpcChannels.some(p => channelLower.includes(p));
+  const isSend = PATTERNS.sendIpcChannels.some(p => channelLower.includes(p));
+
+  writeLog(type, {
+    channel,
+    isLoginEvent: isLogin,
+    isSendEvent: isSend,
+    payload: args
+  });
+}
+
+function analyzeIpcResult(type, channel, result) {
+  writeLog(type, {
+    channel,
+    resultPayload: result
+  });
+}
+
+// ==========================================
+// 4. Hook 2: Electron WebRequest 網路層 (Chromium 視角)
+// ==========================================
+function hookWebRequest() {
+  app.whenReady().then(() => {
+    const filter = { urls: ['<all_urls>'] };
+
+    // 攔截請求標頭與發送的主體內容 (Body)
+    session.defaultSession.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
+      const { url, method, requestHeaders, uploadData } = details;
+      
+      let postData = null;
+      if (uploadData && uploadData.length > 0) {
+        postData = uploadData
+          .map(d => (d.bytes ? d.bytes.toString('utf8') : ''))
+          .join('');
+      }
+
+      const urlLower = url.toLowerCase();
+      const isLogin = PATTERNS.loginEndpoints.some(ep => urlLower.includes(ep));
+      const isSend = PATTERNS.sendEndpoints.some(ep => urlLower.includes(ep));
+
+      if (isLogin || isSend || method === 'POST' || method === 'PUT') {
+        writeLog('WEB_REQUEST_OUTGOING', {
+          url,
+          method,
+          isLoginEvent: isLogin,
+          isSendEvent: isSend,
+          headers: requestHeaders,
+          body: postData
+        });
+      }
+
+      callback({ requestHeaders });
+    });
+
+    // 攔截伺服器回應狀態 (判定登入是否成功)
+    session.defaultSession.webRequest.onCompleted(filter, (details) => {
+      const { url, statusCode, responseHeaders } = details;
+      const urlLower = url.toLowerCase();
+      const isLogin = PATTERNS.loginEndpoints.some(ep => urlLower.includes(ep));
+
+      if (isLogin || statusCode >= 400) {
+        writeLog('WEB_REQUEST_INCOMING', {
+          url,
+          statusCode,
+          isLoginSuccess: isLogin && statusCode === 200,
+          headers: responseHeaders
+        });
+      }
+    });
+  });
+}
+
+// ==========================================
+// 5. Hook 3: Node.js 核心 HTTP/HTTPS 模組 (原生 API 視角)
+// ==========================================
+function hookNodeHttp() {
+  [http, https].forEach(module => {
+    const originalRequest = module.request;
+    module.request = function (...args) {
+      const req = originalRequest.apply(this, args);
+      const originalWrite = req.write;
+      const originalEnd = req.end;
+      let requestBody = '';
+
+      req.write = function (chunk, ...rest) {
+        if (chunk) requestBody += chunk.toString();
+        return originalWrite.apply(this, [chunk, ...rest]);
+      };
+
+      req.end = function (chunk, ...rest) {
+        if (chunk) requestBody += chunk.toString();
+        if (requestBody) {
+          writeLog('NODE_HTTP_OUTGOING', {
+            host: req.getHeader('host'),
+            path: req.path,
+            method: req.method,
+            headers: req.getHeaders(),
+            body: requestBody
+          });
+        }
+        return originalEnd.apply(this, [chunk, ...rest]);
+      };
+
+      return req;
+    };
+  });
+}
+
+// ==========================================
+// 6. 腳本初始化入口
+// ==========================================
+function initHooks() {
+  try {
+    hookIPC();
+    hookWebRequest();
+    hookNodeHttp();
+    writeLog('SYSTEM', { status: 'All hooks initialized successfully' });
+  } catch (err) {
+    writeLog('SYSTEM_ERROR', { error: err.message, stack: err.stack });
+  }
+}
+
+initHooks();</code></pre>
+    </div>
+  </section>
+
+  <!-- 架構與流程說明 -->
+  <section>
+    <h2>2. 腳本邏輯與執行流程架構</h2>
+    <p>腳本採取 <strong>極早期注入 (Early Injection)</strong> 原則，在 Electron 主進程業務邏輯加載前優先完成原生地向替換：</p>
+    
+    <div class="diagram">+-----------------------------------------------------------------------+
+|                         Electron 應用程式啟動                          |
++-----------------------------------------------------------------------+
+                                    |
+                                    v
++-----------------------------------------------------------------------+
+|                       載入 Hook 腳本 (hook_main.js)                     |
++-----------------------------------------------------------------------+
+                                    |
+        +---------------------------+---------------------------+
+        |                           |                           |
+        v                           v                           v
++-----------------------+ +-------------------+ +-----------------------+
+| 1. Hook IPC 通訊層     | | 2. Hook WebRequest| | 3. Hook Node.js Http  |
+| - 重寫 ipcMain.on     | | - 監聽 API 請求   | | - 重寫 http.request |
+| - 重寫 ipcMain.handle | | - 抓取 Post Body  | | - 攔截串流 write/end  |
++-----------------------+ +-------------------+ +-----------------------+
+        |                           |                           |
+        +---------------------------+---------------------------+
+                                    |
+                                    v
++-----------------------------------------------------------------------+
+|                       進行特徵比對與事件觸發分析                          |
+|  - 路徑特徵比對 (Login/Send Endpoints)                                 |
+|  - 管道名稱比對 (Login/Send IPC Channels)                               |
+|  - 敏感 Token 與 驗證欄位提取 (Authorization/Bearer/Password)          |
++-----------------------------------------------------------------------+
+                                    |
+                                    v
++-----------------------------------------------------------------------+
+|                      非阻塞寫入 D 碟 JSONL 日誌檔案                      |
++-----------------------------------------------------------------------+</div>
+
+    <h3>核心模組運作機制解析</h3>
+    <ul>
+      <li><strong>非阻塞與防崩潰機制 (safeStringify & writeLog)</strong>：以 JSON Lines (<code>.jsonl</code>) 非同步寫入。引入 <code>Set</code> 特徵雜湊以徹底避免 Node.js 在序列化 Electron 原生 Complex Object 時拋出 Circular Reference 異常導致應用程式 Crash。</li>
+      <li><strong>IPC 通訊層監控 (hookIPC)</strong>：重寫 <code>ipcMain.on</code> 與 <code>ipcMain.handle</code>，在保留原始 Handler 回呼邏輯的基礎上，插入閉包攔截器（Closure Interceptor），即時監控由渲染層（Renderer）傳入的 Payload。</li>
+      <li><strong>Chromium 網路層監控 (hookWebRequest)</strong>：透過 Electron Session API 監聽 Chromium 網路通道，抓取 <code>uploadData</code> 內的原始位元組資料（Bytes），將其還原為 UTF-8 請求體。</li>
+      <li><strong>Node 核心網路層監控 (hookNodeHttp)</strong>：攔截 Main 進程內部使用原生 <code>http/https</code> 模組或 Axios 發起的多段 Stream (<code>req.write</code>/<code>req.end</code>) 請求，組合為完整的完整 Payload。</li>
+    </ul>
+  </section>
+
+  <!-- 登入與發送偵測說明 -->
+  <section>
+    <h2>3. 精準偵測「登入」與「發送」行為</h2>
+
+    <h3>A. 登入行為判定機制 <span class="badge badge-login">Login Detection</span></h3>
+    <table>
+      <thead>
+        <tr>
+          <th>維度</th>
+          <th>檢測特徵與邏輯</th>
+          <th>關鍵欄位 / API</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>端點路徑 (URL Path)</strong></td>
+          <td>比對網路請求是否包含驗證關鍵字。</td>
+          <td><code>/login</code>, <code>/auth</code>, <code>/token</code>, <code>/user/sign-in</code></td>
+        </tr>
+        <tr>
+          <td><strong>請求體 (Payload Body)</strong></td>
+          <td>檢查 Body 中是否包含帳密等敏感欄位。</td>
+          <td><code>username</code>, <code>password</code>, <code>account</code>, <code>mobile</code></td>
+        </tr>
+        <tr>
+          <td><strong>回應與狀態碼</strong></td>
+          <td>比對 Response 是否成功發放 Token 或 Session Cookie。</td>
+          <td><code>statusCode === 200</code>, <code>Set-Cookie</code>, <code>access_token</code></td>
+        </tr>
+        <tr>
+          <td><strong>IPC 訊號發送</strong></td>
+          <td>渲染層通知主進程保存登入憑證的管道監控。</td>
+          <td><code>login</code>, <code>user-login</code>, <code>save-user-session</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>B. 訊息/資料發送判定機制 <span class="badge badge-send">Sending Detection</span></h3>
+    <table>
+      <thead>
+        <tr>
+          <th>維度</th>
+          <th>檢測特徵與邏輯</th>
+          <th>關鍵欄位 / API</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>HTTP 請求動作</strong></td>
+          <td>過濾掉單純獲取資料的 GET，聚焦於寫入動作。</td>
+          <td><code>POST</code>, <code>PUT</code>, <code>PATCH</code></td>
+        </tr>
+        <tr>
+          <td><strong>功能性端點</strong></td>
+          <td>比對是否為聊天、發文或上傳檔案之 API。</td>
+          <td><code>/send</code>, <code>/chat/send</code>, <code>/post/publish</code>, <code>/upload</code></td>
+        </tr>
+        <tr>
+          <td><strong>IPC 動作捕獲</strong></td>
+          <td>監控前台按下「發送」按鈕引發的主進程通訊。</td>
+          <td><code>send-message</code>, <code>chat-send</code>, <code>submit-form</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- 部署與執行 -->
+  <section>
+    <h2>4. 腳本部署與注入方式</h2>
+    <h3>方式一：源碼直接注入</h3>
+    <p style="color: var(--text-secondary); margin-bottom: 0.5rem;">在目標應用程式的 <code>main.js</code> 第一行手動引入：</p>
+    <div class="code-block">
+      <pre><code>// 於 main.js 最頂端加入
+require('./hook_main.js');</code></pre>
+    </div>
+
+    <h3>方式二：命令列靜態預載 (免修改原程式碼)</h3>
+    <p style="color: var(--text-secondary); margin-bottom: 0.5rem;">利用 Node.js 提供的 <code>--require</code> 參數強制注入，適合已打包之 Electron 應用：</p>
+    <div class="code-block">
+      <pre><code>electron --require ./hook_main.js ./app</code></pre>
+    </div>
+  </section>
+
+  <div class="footer">
+    Electron Hook Audit Framework &copy; 2026 - All Rights Reserved.
+  </div>
+</div>
+
+</body>
+</html>
