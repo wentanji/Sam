@@ -1,0 +1,1663 @@
+我寫了一隻python的程式
+
+,除了pyinstall打包產生exe檔還有其他方式可以產生exe檔嗎?
+
+除了 PyInstaller，將 Python 程式打包或轉譯成 Windows .exe 可執行檔還有以下幾種主要方式：
+
+1. Nuitka（效能最佳與原始碼保護）
+
+原理：將 Python 程式碼翻譯成 C/C++ 程式碼，再調用 C 編譯器（如 GCC 或 MSVC）編譯成原生 .exe。
+
+優點：執行速度通常比一般打包工具更快，且因為轉為 C 程式碼，具備極高的程式碼防護能力，能有效防止反編譯。
+
+適用情境：對執行效能有要求、或希望保護商業邏輯原始碼不被竊取的專案。
+
+2. cx_Freeze（跨平台且穩定）
+
+原理：與 PyInstaller 類似，將 Python 解譯器、依賴庫與腳本打包在一起。
+
+優點：支援 Windows、macOS 與 Linux，透過 setup.py 腳本設定，靈活性極高且長期維護良好。
+
+適用情境：需要跨平台打包或偏好透過程式碼精細控制打包過程的專案。
+
+3. PyOxidizer（基於 Rust 的新世代打包工具）
+
+原理：將 Python 解譯器嵌入到 Rust 產生的單一可執行檔中，可直接在記憶體中載入模組。
+
+優點：啟動速度極快，單一檔案打包的完整度高，且不需要在硬碟中解壓暫存檔。
+
+缺點：設定較複雜，學習曲線比 PyInstaller 陡峭。
+
+4. py2exe（Windows 專用老牌工具）
+
+原理：專為 Windows 設計的打包工具，能將 Python 腳本轉為 Windows .exe 與服務（Windows Service）。
+
+優點：針對 Windows 環境優化，設定直覺。
+
+適用情境：僅針對 Windows 平台開發的小型或傳統專案。
+
+5. 免安裝 Python（Python Embedded Package）+ 啟動外殼（免編譯方案）
+
+原理：下載 Python 官方提供的嵌入版免安裝包（Python Embedded Zip），將程式碼與依賴套件放入同一個資料夾，並透過編寫一個 .bat 啟動檔，或使用 Bat to Exe Converter 包裝成 .exe。
+
+優點：完全不需要經歷 Python 代碼打包過程，能 100% 避免防毒軟體對打包工具（如 PyInstaller）的誤報（False Positive）。
+
+適用情境：經常遭遇防毒軟體攔截或需要完全自主掌控運行環境的情境。
+
+我最主要的在於打包後防止被人看到原始代碼跟修改
+
+一般 PyInstaller、cx_Freeze 等傳統工具打包時，本質上只是把 Python 原始碼編譯成位元組碼（.pyc）再打包壓縮。對手只需要使用 pyinstxtractor 搭配 uncompyle6 或 pycdc 等反編譯工具，能在幾分鐘內將你的原始碼幾乎完全還原。
+
+如果你的核心需求是防止他人反編譯、查看或修改原始碼，最有效的解決方案如下：
+
+1. 使用 Nuitka（最推薦：直接編譯為 C/C++ 機器碼）
+Nuitka 不是「打包」Python，而是將 Python 程式碼翻譯成真正的 C/C++ 原始碼，再調用 MSVC 或 GCC 等編譯器將其編譯成原生機器碼 (.exe)。
+
+防護原理：打包後的程式已經不再含有任何 Python 位元組碼（.pyc），傳統的 Python 反編譯器完全無效。逆向工程師只能像對待 C/C++ 程式一樣使用 IDA Pro 或 Ghidra 去讀組合語言，難度極高。
+
+優點：程式碼安全性高、執行效能提升、操作相對簡單。
+
+常用指令：
+
+Bash
+pip install nuitka
+nuitka --standalone --onefile --enable-plugin=tk-inter main.py
+2. 使用 PyArmor（專業級代碼混淆與加密）
+PyArmor 是專門針對 Python 程式碼保護設計的混淆工具，它不只做簡單的變數重命名，而是會對位元組碼進行動態加密、控制流混淆以及加入反偵錯（Anti-debugging）機制。
+
+防護原理：將 Python 函式體加密，只有在執行到該函式時才會在記憶體中動態解密，執行完畢立即重新加密。即使被抽取出 .pyc 也無法還原出邏輯。
+
+搭配打包：可以先用 PyArmor 混淆加密程式碼，再調用打包工具生成 .exe：
+
+Bash
+pip install pyarmor
+pyarmor gen --pack pyinstaller main.py
+優點：具備高強度的程式碼保護，甚至支援設定「試用期限」或「綁定特定電腦硬體序號」。
+
+3. 將核心邏輯改用 Cython 編譯為 .pyd 檔
+如果不想整個專案重構，可以將最關鍵、最核心的商業邏輯模組（例如 core.py）獨立出來。
+
+防護原理：利用 Cython 將 core.py 編譯成 Windows 的 C 擴充動態連結庫（.pyd），這也是編譯成機器碼的形式。
+
+架構方式：
+
+將核心演算法寫在 core.py，用 Cython 編譯產生 core.pyd。
+
+主程式 main.py 直接 import core 調用。
+
+最後用 PyInstaller 等工具打包 main.py 與 core.pyd。他人即使解包 .exe，也只能拿到編譯後的二進位 core.pyd。
+
+總結建議
+需求情境	推薦方案	防護強度
+想要一步到位，防護好且提升效能	Nuitka	High
+需要限制授權（如期限、綁定硬體）	PyArmor + 打包工具	High+
+僅想保護特定的核心演算法/模組	Cython (.pyd)	High
+想要了解 Nuitka 的完整安裝與設定教學嗎？
+
+是
+我所在的環境只能使用python 的工具
+
+如果環境只能使用 Python 工具（意即透過 pip 安裝，且無法或不便安裝 Visual Studio、GCC 等外部 C/C++ 編譯器），PyArmor 與 AST 程式碼混淆工具 是最佳解決方案。
+
+1. PyArmor + PyInstaller（推薦：高強度加密，僅需 pip 安裝）
+
+PyArmor 雖然底層具備強大的動態加密機制，但它本身封裝為標準 Python 套件，完全不需要你在系統中預先安裝任何 C/C++ 編譯器。
+
+安裝方式：
+
+Bash
+pip install pyarmor pyinstaller
+運作機制：PyArmor 會加密 Python 位元組碼（Bytecode）並加入控制流混淆。打包後，他人即便使用反編譯工具抽取內容，也只能拿到無法讀取的加密區塊。
+
+操作步驟：
+
+對程式碼進行加密混淆：
+
+Bash
+pyarmor gen -O dist_protected main.py
+使用 PyInstaller 將加密後的檔案打包成獨立 .exe：
+
+Bash
+pyarmor gen --pack pyinstaller main.py
+2. AST 程式碼混淆（python-minifier）+ 打包（100% 純 Python 邏輯）
+
+如果環境要求必須是 100% 純 Python 代碼操作，可以在打包前透過 AST（抽象語法樹）解析器將原始碼「混淆與極小化」。
+
+安裝方式：
+
+Bash
+pip install python-minifier pyinstaller
+運作機制：將程式碼中的變數名、函式名、類別名全部替換成無意義的亂碼（如 _0x1a2b），並移除所有註解、字串文檔與換行。
+
+防護效果：即便對手使用 pycdc 或 uncompyle6 將 .exe 反編譯還原成 Python 程式碼，獲得的也會是一團極度混亂、無法閱讀且難以修改的「亂碼程式」，動一字就會導致程式崩潰。
+
+指令範例：
+
+Bash
+# 將 main.py 混淆並輸出為 main_obf.py
+pyminify main.py --rename-globals --rename-locals --remove-literal-statements > main_obf.py
+
+# 再將混淆後的檔案打包成 exe
+pyinstaller --onefile main_obf.py
+3. 使用 Python 內建 compileall 編譯為 .pyc（免安裝任何額外套件）
+
+如果不允許安裝任何第三方混淆工具，可以使用 Python 官方標準庫：
+
+操作步驟：
+
+使用內建模組將 .py 編譯為位元組碼 .pyc：
+
+Bash
+python -m compileall main.py
+將生成在 __pycache__/ 資料夾下的 .pyc 檔案檔名改回 main.pyc。
+
+直接拿 main.pyc 來作為進入點進行 PyInstaller 打包，並將原有的 .py 原始碼刪除。
+
+備註：單純 .pyc 仍有被反編譯的風險，建議先搭配方案 2（程式碼混淆）處理過後再轉成 .pyc 打包，防護效果會更好。
+
+想要了解如何寫一個自動化腳本，一次完成「混淆 + 打包」嗎？
+
+是
+執行效率會被影響嗎?
+
+會有所影響，但對絕大多數應用而言，差異微乎其微甚至完全感知不到。具體影響程度取決於你選擇的保護方式：
+
+1. AST 代碼混淆（如 python-minifier）：完全不影響
+效能變化：0% 影響（甚至微幅加快啟動速度）。
+
+原因：混淆只是把變數、函式名稱替換成無意義的短字串（如將 get_user_data 改為 a1），並移除註解與換行。對 Python 直譯器來說，程式邏輯完全沒變，因為檔案體積變小，微秒級別的檔案載入速度甚至會變快。
+
+2. PyArmor 動態加密：輕微影響（約 1% ~ 10%）
+效能變化：一般 UI 或自動化腳本無感知，但若包含高頻率的純 Python 迴圈運算，會有較明顯的延遲。
+
+原因：PyArmor 的防護機制是在程式執行到某個函式時，於記憶體中「即時解密」該函式，執行完畢再重新加密。
+
+情境評估：
+
+無感：GUI 畫面繪製、檔案讀寫、API 網路請求、資料庫存取（因為瓶頸不在 Python 代碼本身）。
+
+有感：在 Python 內部用 for 迴圈跑數百萬次的純數學計算。
+
+優化建議：如果運算量極大，可使用 NumPy、Pandas 等 C 語言底層套件來處理數據，PyArmor 對這類套件的調用不會造成任何效能損失。
+
+3. 事先編譯為 .pyc 位元組碼：完全不影響
+效能變化：0% 影響（僅省下極微小的啟動編譯時間）。
+
+原因：Python 執行普通 .py 檔時，第一步本來就是先在記憶體中將其轉為 .pyc 位元組碼再執行。手動編譯為 .pyc 只是把這個動作提前完成而已。
+
+總結建議
+商業邏輯、API 或一般工具程式：直接使用 PyArmor，防護力最高且效能損失完全可忽略。
+
+極度依賴 Python 本身 CPU 迴圈運算的程式：使用 AST 混淆（python-minifier），既能讓程式碼變得極難閱讀，又能維持 100% 的原生執行速度。
+
+想要了解如何在 PyArmor 中針對高頻率迴圈優化解密設定嗎？
+
+是
+我原本的情境是
+
+我寫的軟體是一隻自動化的python
+
+他主要是對 electron聊天介面 注入javascript
+
+然後建立通訊來,取得electron的訊息跟發送訊息出去
+
+python內部會呼叫excel 來執行sql
+
+然後
+
+我會用pyinstall 打包成exe 但為了檔案不要太大我只會打包主main.py
+
+這樣解壓包就不會太久
+
+以這個情況我要怎麼選擇比較好
+
+針對你這個情境（Electron 自動化注入 + JS 通訊 + Excel/SQL 呼叫），我們需要兼顧：啟動速度、程式碼防護（含隱藏 JS 與 SQL）、以及執行效能。
+
+以下是為你量身打造的最佳方案與架構建議：
+
+1. 打包模式選擇：採用 --onedir（資料夾模式），放棄 --onefile
+你提到「為了檔案不要太大，解壓包就不會太久」，這點非常關鍵：
+
+--onefile（單一 EXE）：每次雙擊執行時，系統必須先把 EXE 裡的解壓封包硬解到 C 槽的 %TEMP% 暫存區，檔案越大、啟動越慢。
+
+--onedir（資料夾模式）：PyInstaller 會產生一個包含 main.exe 與相關依賴（.dll、.pyd）的資料夾。主程式可以在 0 秒內直接啟動，完全沒有解壓延遲。
+
+策略：使用 --onedir 打包成資料夾，散佈時再將整個資料夾用 7-Zip 或 WinRAR 壓成 .zip 或 .rar 傳給使用者即可。
+
+2. 防護方案選擇：PyArmor + PyInstaller
+對於你的軟體性質，PyArmor 是最佳選擇，原因如下：
+
+完全不影響執行效能：
+
+你的程式瓶頸在於 Electron 畫面繪製、WebSocket/IPC 通訊、以及 Excel / SQL 資料庫存取（這些都是 I/O 導向作業）。
+
+PyArmor 的解密開銷非常微小，在你的自動化情境中完全感受不到差別。
+
+完美保護核心秘密（JS 程式碼與 SQL 語法）：
+
+自動化軟體最怕別人看到你寫的 JavaScript 注入腳本 或 SQL 查詢邏輯。
+
+只要你把 JS 腳本與 SQL 語法直接寫在 .py 檔案的字串常數中，PyArmor 混淆加密後，對手連用記事本開文字檔或用反編譯器都抓不到你的 JS 與 SQL。
+
+3. 具體操作步驟教學
+第一步：建立與組織你的 Python 專案架構
+將你的 JS 注入邏輯與 SQL 邏輯收納在 Python 變數或模組內，不要直接放外掛的 .js 或 .sql 純文字檔：
+
+Python
+# config.py (核心邏輯與語法)
+INJECT_JS_SCRIPT = """
+(function() {
+    // 你的 Electron 自動化與通訊邏輯
+    console.log("Electron Inject Success");
+})();
+"""
+
+SQL_QUERY = "SELECT * FROM orders WHERE status = 'pending';"
+第二步：使用 PyArmor 進行代碼加密
+在終端機執行 PyArmor 加密命令：
+
+Bash
+# 1. 安裝套件
+pip install pyarmor pyinstaller
+
+# 2. 對整個專案目錄或 main.py 進行混淆加密（輸出至 dist_obf 資料夾）
+pyarmor gen -O dist_obf main.py config.py
+第三步：使用 PyInstaller 進行 --onedir 快速打包
+進入包含加密代碼的資料夾，或直接使用 PyArmor 整合指令：
+
+Bash
+# 使用 --onedir (或 -D)，避免啟動解壓延遲
+pyinstaller --onedir --noconsole --distpath ./final_release dist_obf/main.py
+(註：--noconsole 可以隱藏黑底的 CMD 命令提示字元視窗)
+
+4. 方案比較總結表
+考量指標	原本（純 PyInstaller --onefile）	推薦（PyArmor + PyInstaller --onedir）
+啟動速度	慢（每次執行都要解壓至 Temp）	極快（0 秒即刻啟動）
+JS/SQL 安全性	弱（容易被反編譯抽出字串）	極高（動態加密，無法直接讀取）
+自動化效能	100%	100%（I/O 瓶頸無影響）
+防毒軟體誤報率	較高（單一檔易被攔截）	較低（目錄模式結構清晰）
+想要了解如何將混淆後的軟體加入「綁定電腦硬體」或「到期自動失效」的授權功能嗎？
+
+是
+1.Electron 畫面繪製,SQL 查詢邏輯,這個被看到沒關係,原本就是寫在excel的
+
+,python主要就是呼叫excel去執行excel會返回傳的值,python在去處理
+
+2.主要是不想被知道python 語法是怎麼寫的,python 內部要注入的javascript也不想被知道
+
+了解！既然 Excel 和 SQL 的部分暴露沒關係，核心目標只要「保護 Python 語法邏輯」與「隱藏嵌入的 JavaScript 腳本」，同時要在純 Python 環境下實現，那 PyArmor + PyInstaller (資料夾模式) 就是 100% 符合你需求的最優解。
+
+為什麼這個方案完全契合你的需求？
+JS 腳本自動被加密隱藏：
+只要你把要注入 Electron 的 JavaScript 寫在 Python 的字串變數裡（例如 JS_CODE = """..."""），PyArmor 在加密 .py 檔時，會將這些字串常數一併進行動態加密。
+
+他人即便拿到檔案，用記事本、Hex 編輯器（Hex Editor）或搜尋工具，也完全搜尋不到任何 JS 的關鍵字（例如 document.querySelector、WebSocket 或你的 API 邏輯）。
+
+Python 語法邏輯完全無法被反編譯：
+PyArmor 混淆並加密了 Python 的位元組碼與控制流。即使對手抽取出的檔名是 .pyc，使用市面上所有的反編譯工具（如 pycdc、uncompyle6）試圖還原 Python 語法時，只會直接報錯或解出無效的亂碼。
+
+100% 純 Python 環境，無需 C 編譯器：
+不需要安裝 Visual Studio 或 GCC，你只需要在原本的 Python 環境執行：
+
+Bash
+   pip install pyarmor pyinstaller
+   
+啟動極速，無解壓等待時間：
+透過 PyInstaller 的 --onedir（資料夾模式），所有 Python 依賴檔已經在資料夾中準備好，雙擊 .exe 可以在 0 秒內直接啟動，解決你原本擔心 .exe 太大解壓太慢的問題。
+
+具體實作三步驟
+第一步：將 JavaScript 寫在 Python 變數內 (main.py)
+請確保你的 JS 注入碼是寫在 Python 檔案裡，而不是放在外掛的 .js 檔案中：
+
+Python
+# main.py
+
+# 將你的 JS 腳本寫在 Python 變數中，PyArmor 會自動加密這段字串
+INJECT_JS = """
+(function() {
+    console.log("正在監聽 Electron 訊息...");
+    // 你的 Electron 訊息抓取與發送邏輯
+})();
+"""
+
+def inject_to_electron():
+    # 你的 Python 注入邏輯 (如使用 Selenium, Playwright, 或 WebSocket)
+    print("注入 JavaScript 中...")
+    # driver.execute_script(INJECT_JS)
+
+def call_excel_sql():
+    # 呼叫 Excel 執行 SQL 並取回傳值的 Python 邏輯
+    pass
+
+if __name__ == "__main__":
+    inject_to_electron()
+    call_excel_sql()
+第二步：使用 PyArmor 加密 Python 程式碼
+開啟 CMD 或 Terminal，執行以下指令：
+
+Bash
+# 對 main.py 進行加密，加密後的檔案會存放在 dist_obf 資料夾中
+pyarmor gen -O dist_obf main.py
+第三步：使用 PyInstaller 進行「資料夾模式」打包
+進入剛才產生的加密目錄，或者直接指定路徑打包：
+
+Bash
+# 使用 -D (--onedir) 資料夾模式，--noconsole 隱藏黑底視窗
+pyinstaller -D --noconsole --distpath ./release dist_obf/main.py
+最終產出與散佈方式
+打包完成後，在 release/main 資料夾內：
+
+會看到一個 main.exe 以及許多相關的 .dll / .pyd 支援檔。
+
+安全性：裡面的 Python 邏輯與 JS 內容已全部被加密保護。
+
+啟動速度：使用者點擊 main.exe 會瞬間打開，完全不經歷 Temp 資料夾解壓過程。
+
+散佈方式：你只需要將整個 main 資料夾壓縮成一個 .zip 發給使用者即可。
+
+請詳細介紹我該怎麼一步一步做,跟原本的方式有什麼流程上的改變
+
+之前用pyinstall 他會自己生成一個exe檔跟exe檔要引用的程式
+
+現在我需要自己複製嗎?
+
+不需要自己手動複製檔案！
+
+PyInstaller 的運作機制依然跟以前一樣，會自動把 .exe 以及它所需要的所有支援檔案（包含 Python 核心、庫檔案、DLL，以及被 PyArmor 加密後的程式碼）全部抓進同一個資料夾裡面。
+
+新舊流程對比
+舊流程：
+main.py ➔ PyInstaller ➔ 產生 dist/main.exe （單一檔案，每次點開要解壓，且原始碼容易被反編譯）
+
+新流程：
+main.py ➔ PyArmor 加密 ➔ 產生 dist_obf 資料夾 ➔ PyInstaller 打包 ➔ 產生 release/main 資料夾（裡面有 main.exe 與相關檔案，點開 0 秒啟動，且程式碼與 JS 完全加密）
+
+你在過程中完全不需要手動搬移任何 .dll 或 .py 檔，所有工具都是自動化處理。
+
+詳細一步一步操作指南
+準備工作：安裝所需套件
+開啟命令提示字元（CMD）或 PowerShell，確認安裝並更新工具：
+
+Bash
+pip install --upgrade pyarmor pyinstaller
+步驟 1：確認 Python 程式碼架構 (main.py)
+請確保你的 JavaScript 注入腳本是直接寫在 Python 的字串變數中，這樣 PyArmor 才能幫你自動加密它。
+
+Python
+# main.py 範例
+import time
+
+# 把你的 JS 注入腳本放在 Python 字串裡（會被完全加密隱藏）
+INJECT_JS_CODE = """
+(function() {
+    console.log("Electron 訊息注入中...");
+    // 你的 Electron 通訊與抓取邏輯
+})();
+"""
+
+def main():
+    print("程式啟動中...")
+    # 1. 呼叫 Excel 執行 SQL 取得回傳值
+    # 2. 對 Electron 注入 INJECT_JS_CODE
+    # 3. 處理通訊
+
+if __name__ == "__main__":
+    main()
+步驟 2：使用 PyArmor 對程式碼進行加密
+在專案目錄下執行以下命令：
+
+Bash
+pyarmor gen -O dist_obf main.py
+發生了什麼事？
+PyArmor 會自動建立一個名為 dist_obf 的資料夾。
+
+裡面會有一個已被加密混淆的 main.py。
+
+還有一個 pyarmor_runtime_000000 資料夾（這是負責在記憶體中解密執行的運行庫）。
+
+步驟 3：使用 PyInstaller 將加密程式碼打包成資料夾
+接著將打包目標指向剛才產生的 dist_obf/main.py：
+
+Bash
+pyinstaller -D --noconsole --distpath ./release dist_obf/main.py
+參數解析：
+
+-D（或 --onedir）：打包成資料夾模式（啟動最快）。
+
+--noconsole：執行 .exe 時不顯示黑底 CMD 視窗（若除錯階段需要看 output，可暫時不加這個參數）。
+
+--distpath ./release：指定最後輸出的資料夾位置放在 ./release。
+
+發生了什麼事？
+PyInstaller 會自動分析 dist_obf/main.py，發現它使用了 PyArmor 運行庫，便會自動把所有所需的檔案、DLL、PyArmor 運行庫與 .exe 一併打包進 ./release/main 資料夾中。你不需要手動複製任何東西！
+
+步驟 4：測試與發布
+打包完成後，你的專案目錄下會多出一個 release/main 資料夾，裡面的檔案結構會長這樣：
+
+Plaintext
+release/
+└── main/                   <-- 這是你要給使用者的完整資料夾
+    ├── main.exe            <-- 使用者直接雙擊執行的主程式
+    ├── _internal/          <-- PyInstaller 自動抓進來的依賴庫與加密代碼
+    │   ├── pyarmor_runtime...
+    │   ├── python3x.dll
+    │   └── ... (其他支援檔案)
+本地測試：進入 release/main 資料夾，雙擊 main.exe 測試是否能正常注入 Electron 並讀寫 Excel。
+
+打包交付：直接將整個 main 資料夾右鍵 ➔ 壓縮為 ZIP 檔（例如 my_software_v1.0.zip），發送給使用者即可。
+
+使用者收到後，只需將 ZIP 解壓縮，雙擊裡面的 main.exe 便可瞬間開起軟體。
+
+要我寫一個自動化的 .bat 檔，讓你以後按一下就能自動完成加密與打包嗎？
+
+是
+PyArmor 有可能被破解嗎? 有那些方式
+
+有的，PyArmor 有可能被破解。 在資訊安全與逆向工程領域，只要程式需要在使用者（客戶端）的電腦上執行，就沒有 100% 完全無法破解的機制。
+
+PyArmor 的保護強度極高，能擋掉 99% 的一般使用者與初階開發者，但對專業的逆向工程師來說，仍有以下幾種主要的破解與還原方式：
+
+常見的 PyArmor 破解與逆向手段
+1. 記憶體傾印（Memory Dumping）—— 最核心的破綻
+原理：Python 解譯器（CPython）在執行程式時，最終必須將加密過的位元組碼（Bytecode）解密回記憶體的 PyCodeObject 才能交由 CPU 或直譯器執行。
+
+破解方式：逆向者使用如 Frida、x64dbg 或 GDB 等工具，Hook 住 Python C-API 內部的函數（例如 PyEval_EvalCodeEx 或 PyMarshal_ReadObjectFromString）。在 PyArmor 解密完函式、準備執行的那一微秒，直接抓取記憶體中的解密位元組碼並傾印（Dump）出來，再重新還原成 .pyc 或 .py 檔案。
+
+2. 動態 Hook 攔截明文（針對 JS 與 API Key）
+原理：即使 Python 代碼被完好加密，當你的程式要把 JavaScript 腳本傳遞給 Electron、Selenium 或 WebSocket 時，終究必須以明文字串的形式傳送。
+
+破解方式：逆向者不需要去破譯整個 PyArmor，而是直接用 Frida 或 API Monitor 攔截你的 Python 與 Electron / 瀏覽器之間的通訊管道（例如 Hook 住 WebSocket.send 或 execute_script）。這樣一來，傳輸中的 JavaScript 腳本就會直接以明文暴露。
+
+3. 補丁與逆向 C 語言運行庫（Patching pyarmor_runtime.pyd）
+原理：PyArmor 的動態解密與反偵錯（Anti-debugging）邏輯主要寫在 C 語言編譯成的 .pyd 擴充檔中。
+
+破解方式：逆向專家會使用 IDA Pro 或 Ghidra 等反組譯工具去分析 pyarmor_runtime.pyd，尋找內部的解密密鑰或授權驗證點，並修改二進位檔（Patch）來繞過檢查或提取解密演算法。
+
+4. 自動化解包腳本（Unpacker）
+現狀：網路上（如 GitHub 或論壇）針對 PyArmor 7（舊版） 有不少公開的自動化拆解工具（例如 PyArmor-Unpacker）。
+
+最新版（PyArmor 8+）：官方大幅重構了保護架構，引入了 BCC Mode（將 Python 位元組碼直接轉譯為 C 程式碼並編譯成機器碼），大幅提高了記憶體傾印與逆向的門檻，目前 PyArmor 8 的破解難度比舊版高出許多。
+
+評估與防禦建議（針對你的自動化情境）
+雖然理論上可被破解，但在商業實務上，PyArmor 的安全性已經完全足夠，因為逆向工程師花費數天甚至數週去分析你的 .exe，其成本可能已經高於直接自己重寫一隻程式。
+
+如果你希望將核心 JavaScript 腳本與邏輯的安全性拉到最高，可以採取以下雙重防禦措施：
+
+JavaScript 本身再做二次混淆：
+寫在 Python 內部的 JS 腳本，先經過 JavaScript Obfuscator（如 javascript-obfuscator）混淆後再放入 Python 字串。即使他人從記憶體攔截到 JS 腳本，也會拿到一團極難閱讀與修改的亂碼。
+
+使用 PyArmor 8+ 並開啟高級模式：
+使用 PyArmor 8 以上版本，並盡量開啟進階保護選項（例如 --assert-call 或 BCC 模式），增加逆向者附加偵錯器（Debugger）的難度。
+
+想要了解如何在 JavaScript 嵌入 Python 前先進行 JS 混淆保護嗎？
+
+是
+現在有一個新的情況
+
+我這隻exe檔,只允許特定的電腦可以執行
+
+我該怎麼去保護,我不想每次都重新打包一次exe檔
+
+而且我沒有伺服器來驗證
+
+我需要建立一個可以傳給user的白名單,
+
+如果那個白名單的內容符合那台電腦程式就可以執行
+
+請一步一步引導我該怎麼做
+
+要實現「不用架設伺服器」、「不用每次重新打包 .exe」，且「透過白名單檔案限制特定電腦執行」，離線授權的最佳架構為：
+
+取得客戶電腦的硬體特徵碼（HWID，如主機板 UUID 或硬碟序號）。
+
+開發者在本地生成授權/白名單檔案 (license.lic)。
+
+.exe 啟動時自動比對白名單與本機硬體碼（配對成功才繼續執行）。
+
+因為已經決定使用 PyArmor 保護程式碼，可以直接採用 PyArmor 內建的硬體綁定與授權機制。
+
+方案一：使用 PyArmor 內建授權機制（最推薦，安全度最高）
+PyArmor 底層的 C 語言運行庫內建了 license.lic 的比對邏輯。你只需要打包一次 .exe，之後每當有新客戶，只需在你的電腦生成專屬的 license.lic 檔發給客戶即可。
+
+步驟 1：取得客戶電腦的硬體序號 (HWID)
+請客戶在他們的 Windows 電腦開啟 CMD（命令提示字元），執行以下指令並將字串回傳給你：
+
+取得主機板 UUID（推薦，更換硬碟也不受影響）：
+
+DOS
+wmic csproduct get UUID
+或取得第一張網卡的 MAC 位址：
+
+DOS
+getmac
+步驟 2：在開發者電腦生成授權檔案 (不需要重新打包 EXE)
+拿到客戶的 HWID 後，在你自己的電腦上開啟終端機，使用 PyArmor 生成綁定該硬體的授權檔：
+
+Bash
+# 綁定主機板 UUID 範例
+pyarmor gen license --bind-disk "客戶的主機板UUID"
+
+# 或者綁定網卡 MAC 位址
+pyarmor gen license --bind-mac "00:11:22:33:44:55"
+
+# (可選) 順便加上使用期限，例如到期日為 2026-12-31
+pyarmor gen license --bind-disk "客戶的主機板UUID" -e 2026-12-31
+執行後，PyArmor 會在你的目錄下生成一個 licenses/license.lic 檔案。
+
+步驟 3：部署與交付
+將生成的 license.lic 檔案傳給客戶。
+
+請客戶將 license.lic 放入軟體的資料夾中（與 main.exe 放置在同一層目錄，或放入 _internal/ 目錄下）。
+
+當客戶雙擊 main.exe 時，PyArmor 會自動在背景抓取該台電腦的硬體資訊並與 license.lic 比對：
+
+符合 ➔ 程式順利執行。
+
+不符合/未放置 license.lic ➔ 程式直接拋出異常並強制退出。
+
+為什麼這種方式極難破解？
+因為檢查 license.lic 的邏輯是直接寫在 PyArmor 編譯好的 C 語言擴充模組（.pyd）深處，使用者既無法修改 Python 原始碼跳過檢查，也無法偽造 license.lic。
+
+方案二：自訂 Python 多台電腦「白名單加密檔」（彈性較高）
+如果希望一個白名單檔案內包含多台授權電腦的列表，可以在 Python 程式碼中寫入比對邏輯，並透過加密防止修改。
+
+步驟 1：編寫 HWID 收集腳本 (get_hwid.py)
+做一個簡單的小工具給客戶執行，取得其硬體特徵：
+
+Python
+import subprocess
+
+def get_motherboard_uuid():
+    cmd = "wmic csproduct get uuid"
+    uuid = subprocess.check_output(cmd, shell=True).decode().split('\n')[1].strip()
+    return uuid
+
+if __name__ == "__main__":
+    print(f"您的電腦硬體碼為: {get_motherboard_uuid()}")
+    input("請複製上方硬體碼傳給開發者，按 Enter 鍵結束...")
+步驟 2：開發者端生成加密的白名單檔案 (gen_whitelist.py)
+收集到所有允許執行的電腦 UUID 後，在開發者端加密生成 whitelist.lic：
+
+Python
+import json
+import base64
+
+# 授權的電腦 UUID 白名單列表
+ALLOWED_UUIDS = [
+    "4C4C4544-0042-4D10-8033-B2C04F313133",
+    "A1B2C3D4-E5F6-7890-1234-56789ABCDEF0"
+]
+
+def generate_whitelist_file():
+    data_str = json.dumps(ALLOWED_UUIDS)
+    # 簡易 Base64 處理 (亦可加入 AES 密鑰加密)
+    encoded = base64.b64encode(data_str.encode('utf-8')).decode('utf-8')
+    
+    with open("whitelist.lic", "w") as f:
+        f.write(encoded)
+    print("白名單檔案 whitelist.lic 生成完成！")
+
+if __name__ == "__main__":
+    generate_whitelist_file()
+步驟 3：在 main.py 開頭加入驗證邏輯
+在你的主程式開頭加入比對邏輯。這段邏輯之後會被 PyArmor 加密，因此使用者無法篡改驗證流程：
+
+Python
+import os
+import sys
+import json
+import base64
+import subprocess
+
+def get_local_uuid():
+    try:
+        cmd = "wmic csproduct get uuid"
+        return subprocess.check_output(cmd, shell=True).decode().split('\n')[1].strip()
+    except Exception:
+        return ""
+
+def verify_whitelist():
+    license_file = "whitelist.lic"
+    if not os.path.exists(license_file):
+        print("錯誤：找不到授權檔案 whitelist.lic！")
+        sys.exit(1)
+        
+    try:
+        with open(license_file, "r") as f:
+            encoded_data = f.read()
+        
+        # 解密白名單
+        allowed_uuids = json.loads(base64.b64decode(encoded_data).decode('utf-8'))
+        local_uuid = get_local_uuid()
+        
+        # 比對本機 UUID 是否在白名單內
+        if local_uuid not in allowed_uuids:
+            print(f"錯誤：此電腦 ({local_uuid}) 未獲得執行授權！")
+            sys.exit(1)
+            
+        print("授權驗證成功！")
+    except Exception as e:
+        print("授權檔案損毀或無效！")
+        sys.exit(1)
+
+# 在主流程開始前先進行驗證
+if __name__ == "__main__":
+    verify_whitelist()
+    
+    # 接下來執行原本的 Electron 注入與 Excel / SQL 邏輯...
+步驟 4：執行打包
+照常使用 PyArmor + PyInstaller 將 main.py 打包成 .exe。
+
+以後有新增/刪除許可的電腦時，只需重新執行 gen_whitelist.py 生成新的 whitelist.lic 發給客戶覆蓋即可，完全不需要重新打包 .exe。
+
+想要了解如何使用 AES 對白名單檔案進行更高等級的非對稱/密鑰加密嗎？
+
+是
+如果user 自己生成白名單呢??
+
+這段的原理是什麼?
+
+如果使用之前範例中的簡易方式（例如 Base64 編碼），User 確實可以自己修改或生成白名單。
+
+要完全防止 User 偽造白名單，核心原理必須依賴 「非對稱加密與數位簽章（Asymmetric Cryptography & Digital Signature）」。
+
+防偽的核心原理：公鑰與私鑰（非對稱加密）
+非對稱加密會產生一對金鑰：
+
+私鑰 (Private Key)：絕對保密，只留在開發者（你）的電腦中。只有私鑰擁有「簽署與加密」授權檔案的權限。
+
+公鑰 (Public Key)：公開，內嵌在 .exe 程式碼中。公鑰「只能用來驗證」簽章是否正確，無法用來生成新的有效簽章。
+
+【開發者端】 (持有私鑰)
+   客戶 HWID + 你的私鑰 ──[ 簽署加密 ]──> 產生 whitelist.lic (數位簽章)
+                                                  │
+                                                  ▼ 發送給 User
+【使用者端 .exe】 (只有公鑰)                      │
+   本機 HWID + whitelist.lic + 你的公鑰 ──[ 驗證解密 ]──> 比對成功，允許執行！
+為什麼 User 無法自己生成？
+User 的電腦裡面只有 .exe，而 .exe 內部只有公鑰。
+
+公鑰的數學特性是：它只能檢查這個檔案是不是由對應的私鑰簽發的，沒辦法拿公鑰倒推回私鑰。
+
+即使 User 知道白名單的格式，也知道自己的 HWID，但因為沒有你的私鑰，他自行產生的檔案在經過 .exe 內的公鑰驗證時，都會直接被判定為「簽章無效 / 檔案遭篡改」。
+
+兩大方案的防護原理
+1. PyArmor 內建授權（方案一的背後原理）
+當你使用 pyarmor gen 打包時，PyArmor 會在你的開發環境自動生成一組專屬的私鑰，並將對應的驗證公鑰寫入打包出來的 C 語言擴充庫（.pyd）中。
+
+當你執行 pyarmor gen license --bind-disk ... 時，PyArmor 會用你的私鑰對該 HWID 進行簽署，輸出 license.lic。
+
+執行 .exe 時，PyArmor 底層的 C 語言運行庫會調用公鑰比對本機硬體與 license.lic。
+
+優點：完全不需要你自己寫密碼學代碼，PyArmor 已經在 C 語言層級把這套非對稱加密機制做好了。
+
+2. 自訂 Python RSA 簽章驗證（方案二的完整實作）
+如果你想自己掌控白名單檔案，可以使用 Python 的 rsa 或 cryptography 套件：
+
+開發者端：生成一對 2048 位元的 RSA 公私鑰（private.pem 與 public.pem）。
+
+簽發授權時：讀取 private.pem，對包含 User HWID 的 JSON 字串進行數位簽章，將「HWID 內容 + 簽章」打包成 whitelist.lic。
+
+主程式 .exe 內部：將 public.pem 寫死在 Python 程式碼中。程式啟動時，使用 public.pem 驗證 whitelist.lic 內的簽章是否合法，再檢查目前電腦的 HWID 是否在清單內。
+
+配合 PyArmor 打包：因為你的 Python 代碼（包含裡面的公鑰與驗證邏輯）會經過 PyArmor 混淆與動態加密，User 既拿不到私鑰，也無法修改 .exe 中的驗證邏輯。
+
+想要了解如何用 Python 程式碼實作 RSA 數位簽章與驗證嗎？
+
+是
+請給我使用 Python rsa 庫實作『私鑰簽署白名單』與『公鑰驗證白名單』的完整程式碼範例。
+
+套件安裝需求：
+
+Bash
+pip install rsa
+步驟 1：開發者產生 RSA 金鑰對 (gen_keys.py)
+此腳本只需在你的開發者電腦執行一次。私鑰絕對不能洩漏，公鑰則需要放在打包程式中。
+
+Python
+import rsa
+
+# 產生 2048 位元的 RSA 公私鑰對
+pubkey, privkey = rsa.newkeys(2048)
+
+# 1. 儲存私鑰 (私密留存，用於簽署白名單)
+with open("private.pem", "wb") as f:
+    f.write(privkey.save_pkcs1())
+
+# 2. 儲存公鑰 (將寫入或內嵌在主程式中，用於驗證)
+with open("public.pem", "wb") as f:
+    f.write(pubkey.save_pkcs1())
+
+print("金鑰對產生成功！已輸出 private.pem 與 public.pem")
+步驟 2：開發者簽署白名單 (gen_whitelist.py)
+當有新客戶或硬體需要加入時，在你的電腦執行此腳本生成 whitelist.lic 發給客戶。即使 User 手動修改這個檔案，也會因為沒有私鑰重新簽署而失效。
+
+Python
+import json
+import base64
+import rsa
+
+def create_signed_whitelist(hwid_list, private_key_file, output_lic_file):
+    # 1. 整理白名單資料結構
+    data_dict = {
+        "allowed_hwids": hwid_list,
+        "note": "Authorized machines only"
+    }
+    # 轉為標準 JSON bytes (固定 key 的順序，確保序列化一致)
+    data_bytes = json.dumps(data_dict, sort_keys=True).encode('utf-8')
+
+    # 2. 載入開發者的私鑰
+    with open(private_key_file, "rb") as f:
+        privkey = rsa.PrivateKey.load_pkcs1(f.read())
+
+    # 3. 使用私鑰對資料進行 SHA-256 數位簽章
+    signature = rsa.sign(data_bytes, privkey, 'SHA-256')
+
+    # 4. 將「明文資料」與「數位簽章」打包成 Base64 字串寫入授權檔
+    license_package = {
+        "data": base64.b64encode(data_bytes).decode('utf-8'),
+        "signature": base64.b64encode(signature).decode('utf-8')
+    }
+
+    with open(output_lic_file, "w", encoding="utf-8") as f:
+        json.dump(license_package, f, indent=4)
+
+    print(f"白名單簽署完成！已輸出 {output_lic_file}")
+
+if __name__ == "__main__":
+    # 填入允許執行的電腦 HWID (UUID) 列表
+    allowed_uuids = [
+        "4C4C4544-0042-4D10-8033-B2C04F313133",
+        "A1B2C3D4-E5F6-7890-1234-56789ABCDEF0"
+    ]
+    create_signed_whitelist(allowed_uuids, "private.pem", "whitelist.lic")
+步驟 3：主程式內部驗證邏輯 (main.py)
+將公鑰文字硬編碼寫死在 main.py 中。經由 PyArmor 加密打包 後，User 既無法拿到私鑰，也無法擅自修改 PUBLIC_KEY_PEM 或繞過驗證邏輯。
+
+Python
+import os
+import sys
+import json
+import base64
+import subprocess
+import rsa
+
+# 將步驟 1 產生的 public.pem 內容直接硬編碼在此處
+PUBLIC_KEY_PEM = """-----BEGIN RSA PUBLIC KEY-----
+MIGJAoGBAM4x+3S9+7309485... (填入你公鑰檔的完整文字) ...IDAQAB
+-----END RSA PUBLIC KEY-----"""
+
+def get_local_hwid():
+    """取得 Windows 本機主機板 UUID"""
+    try:
+        cmd = "wmic csproduct get uuid"
+        output = subprocess.check_output(cmd, shell=True).decode().split('\n')
+        for line in output:
+            line = line.strip()
+            if line and line.upper() != "UUID":
+                return line
+    except Exception:
+        pass
+    return ""
+
+def verify_whitelist(lic_file_path):
+    if not os.path.exists(lic_file_path):
+        print("錯誤：找不到白名單授權檔 (whitelist.lic)")
+        return False
+
+    try:
+        # 1. 讀取授權檔內容
+        with open(lic_file_path, "r", encoding="utf-8") as f:
+            lic_package = json.load(f)
+
+        data_bytes = base64.b64decode(lic_package["data"])
+        signature = base64.b64decode(lic_package["signature"])
+
+        # 2. 載入公鑰並驗證簽章
+        pubkey = rsa.PublicKey.load_pkcs1(PUBLIC_KEY_PEM.encode('utf-8'))
+        
+        # 核心防偽重點：用公鑰比對簽章，若資料曾被擅自篡改，此處會直接拋出異常
+        rsa.verify(data_bytes, signature, pubkey)
+
+        # 3. 簽章驗證成功，解開 JSON 取得白名單清單
+        license_data = json.loads(data_bytes.decode('utf-8'))
+        allowed_hwids = license_data.get("allowed_hwids", [])
+
+        # 4. 比對本機 HWID 是否在許可清單內
+        local_hwid = get_local_hwid()
+        if not local_hwid:
+            print("錯誤：無法辨識本機硬體識別碼")
+            return False
+
+        if local_hwid in allowed_hwids:
+            print(f"授權成功！本機 HWID ({local_hwid}) 具備執行權限。")
+            return True
+        else:
+            print(f"授權失敗：本機 HWID ({local_hwid}) 不在允許的白名單內！")
+            return False
+
+    except rsa.VerificationError:
+        print("致命錯誤：白名單授權檔已被修改或無效，簽章驗證失敗！")
+        return False
+    except Exception as e:
+        print(f"驗證過程發生例外錯誤: {e}")
+        return False
+
+if __name__ == "__main__":
+    # 程式啟動第一步：進行授權驗證
+    if not verify_whitelist("whitelist.lic"):
+        print("程式即將退出...")
+        sys.exit(1)
+
+    # ---------------------------------------------
+    # 驗證成功後，開始執行原本的自動化主邏輯
+    # ---------------------------------------------
+    print("\n[系統] 開始對 Electron 注入 JavaScript 並連接 Excel...")
+安全機制運作說明
+資料防篡改：rsa.verify() 會計算 data 的雜湊值並與用公鑰解出的 signature 比對。只要 User 修改了 whitelist.lic 中的任何一個字元，驗證步驟會立刻拋出 VerificationError。
+
+無法自行偽造：User 若想加入自己的 HWID，必須產生新的 signature。但只有你手上的 private.pem 才能產出公鑰認可的簽章，User 僅憑 .exe 裡的公鑰是做不到的。
+
+搭配 PyArmor 打包：將包含 PUBLIC_KEY_PEM 及驗證流程的 main.py 經由 PyArmor 加密混淆後，User 無法抽取原始碼，亦無法將 verify_whitelist() 的回傳值改成強制回傳 True。
+
+想要了解如何加入使用期限（過期自動失效）至白名單簽章中嗎？
+
+是
+我有個問題
+
+我的python程式中會先注入一段javascript 到electron的main.js
+
+而這段main.js主要是為了引入我另一段存在文字檔中的javascript
+
+因為另外一段javascript文字很多所以無法直接注入electron的main.js
+
+而這個注入的工作需要在electorn未啟動時由python去注入 app.asar中的main.js
+
+這個情況,我應該如何去保護 我存在文字檔中的javascript不被其他user看出程式碼是怎麼寫的?
+
+要在 Electron 環境中保護大量 JavaScript 程式碼，最核心的架構原則是：將「注入 main.js 的程式碼」與「核心 JS 邏輯」拆開。
+
+main.js 只需要被注入 2~3 行「引導腳本（Bootstrap Loader）」，而龐大的核心 JS 則改為二進位位元組碼 (V8 Bytecode) 或 AES 加密檔 存在磁碟中。
+
+以下是兩種最主流且防護強度最高的解決方案：
+
+方案一：編譯為 V8 位元組碼 (bytenode)（最推薦，安全度最高）
+Node.js 與 Electron 都是基於 Google V8 引擎運作。你可以將原本的 JavaScript 文字檔編譯成 V8 Bytecode（.jsc 二進位檔）。
+
+防禦原理
+編譯後的 .jsc 檔完全不含任何原始 JS 字串與語法結構，就像 C/C++ 編譯後的機器碼一樣。使用者打開只會看到二進位亂碼，市面上也沒有成熟的 .jsc 反編譯工具。
+
+實作步驟
+開發階段：編譯 JS 為 .jsc
+在開發環境安裝 bytenode，將龐大的 JS 檔案編譯成位元組码：
+
+Bash
+npm install -g bytenode
+bytenode -c my_large_script.js core.jsc
+(註：編譯使用的 Node/Electron 版本必須與目標 Electron 的 V8 版本一致)
+
+Python 端的處理
+
+Python 在啟動 Electron 前，將 core.jsc 與 bytenode.jsc（或 bytenode 套件）放入 Electron 的 App 目錄或 app.asar 中。
+
+注入 main.js 的引導碼（只有 2 行）
+你不需要把大量程式碼寫進 main.js，只需注入這段引導碼：
+
+JavaScript
+// 注入到 main.js 開頭的引導碼
+require('bytenode');
+require('./core.jsc'); // 自動在記憶體中載入並執行位元組碼
+方案二：JS 混淆 + AES 動態加密（彈性高、實作簡單）
+如果不想處理 V8 版本相容問題，可以採用「Python 負責保管 AES 密鑰，Electron 在記憶體中解密執行」的機制。
+
+防禦原理
+文字檔中的 JS 經過 JavaScript Obfuscator 極高強度混淆。
+
+混淆後的內容進行 AES 加密，存成 .dat 或 .bin 檔案。
+
+AES 密鑰硬編碼在你的 Python 程式碼中（因為 Python 已被 PyArmor 保護，使用者拿不到密鑰）。
+
+Python 啟動 Electron 前，將解密引導腳本注入 main.js。Electron 啟動時，使用 Node.js 內建的 crypto 模組在記憶體解密 .dat 檔，並用 vm.runInThisContext() 執行。
+
+實作範例
+1. Python 端（加密並輸出 .dat 檔）：
+Python 使用 AES-256 加密你的 JS 檔案（密鑰放在 PyArmor 保護的 Python 內）：
+
+Python
+from Cryptodome.Cipher import AES
+import base64
+
+# 32 bytes 密鑰 (放在受 PyArmor 保護的 Python 內)
+AES_KEY = b'12345678901234567890123456789012'
+
+def encrypt_js_file(input_js_path, output_dat_path):
+    with open(input_js_path, 'r', encoding='utf-8') as f:
+        data = f.read().encode('utf-8')
+    
+    cipher = AES.new(AES_KEY, AES.MODE_EAX)
+    ciphertext, tag = cipher.encrypt_and_digest(data)
+    
+    # 將 nonce, tag, ciphertext 打包存成二進位檔
+    payload = cipher.nonce + tag + ciphertext
+    with open(output_dat_path, 'wb') as f:
+        f.write(payload)
+2. 注入 main.js 的解密引導碼：
+在 main.js 中注入這一段使用 Node.js 內建 crypto 與 vm 模組解密的腳本：
+
+JavaScript
+const fs = require('fs');
+const crypto = require('crypto');
+const vm = require('vm');
+
+function loadEncryptedModule(datFilePath, hexKey) {
+    const key = Buffer.from(hexKey, 'hex');
+    const fileBuffer = fs.readFileSync(datFilePath);
+
+    // 拆解 nonce(16b), tag(16b), ciphertext
+    const nonce = fileBuffer.slice(0, 16);
+    const tag = fileBuffer.slice(16, 32);
+    const ciphertext = fileBuffer.slice(32);
+
+    // Node.js 原生 AES-EAX/GCM 解密
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
+    decipher.setAuthTag(tag);
+    
+    let decrypted = decipher.update(ciphertext, null, 'utf8');
+    decrypted += decipher.final('utf8');
+
+    // 直接在當前 V8 上下文中執行解密後的 JS (不產生任何臨時檔案)
+    vm.runInThisContext(decrypted);
+}
+
+// 執行解密載入 (AES_KEY 由 Python 注入時傳入或硬編碼在引導碼中)
+loadEncryptedModule('./core.dat', '3132333435363738393031323334353637383930313233343536373839303132');
+補充防護：關閉 Electron 的 DevTools 與 Debug 模式
+為了防止使用者透過 Chrome DevTools 或 --inspect 參數掛載偵錯器來抓取記憶體中的 JS 明文，請在注入 main.js 時額外加入以下保護：
+
+JavaScript
+const { app, BrowserWindow } = require('electron');
+
+// 1. 禁止開起開發者工具
+app.on('browser-window-created', (event, window) => {
+    window.webContents.on('before-input-event', (e, input) => {
+        // 封鎖 F12 與 Ctrl+Shift+I
+        if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
+            e.preventDefault();
+        }
+    });
+});
+
+// 2. 停用 DevTools 接口
+app.commandLine.appendSwitch('disable-dev-tools');
+總結架構建議
+Python 程式：使用 PyArmor 打包保護（內含 AES 密鑰與注入邏輯）。
+
+核心 JS 檔案：經過 JavaScript Obfuscator 混淆 ➔ 轉為 V8 Bytecode (.jsc) 或 AES 加密檔 (.dat)。
+
+Electron main.js：僅被 Python 注入 10~20 行的解密/載入引導碼，主程式邏輯不直接露出。
+
+想要了解如何設定 JavaScript Obfuscator 以達到最高強度的 JS 混淆嗎？
+
+是
+1.我不需要去保護己經執行的main.js ,我只需要保護我注入的那一段代碼
+
+2.我沒有electron的編輯環境
+
+3.我只有python
+
+在完全沒有 Node.js / Electron 開發環境，且僅使用 Python 的情況下，最好的保護方式是利用 Node.js 原生就內建的 crypto（加密模組）與 vm（虛擬機記憶體執行模組）。
+
+這意味著：你不需要安裝任何 npm 套件或 Electron 編譯工具，完全在 Python 端就能完成加密與注入。
+
+最佳保護架構：Python AES 加密 + Node.js 原生記憶體載入
+這個方案的運作原理如下：
+
+Python 端：將你龐大的 JavaScript 文字檔，用 Python 的 AES演算法加密成一個 .dat 二進位檔（例如 payload.dat）。
+
+注入 main.js：Python 只需要在 Electron 的 main.js 末尾追加 10 行左右的引導碼。
+
+無痕執行：Electron 啟動時，這 10 行引導碼會調用 Electron 內建的 crypto 模組將 payload.dat 在記憶體中解密，並用 vm.runInThisContext() 直接執行，全程不會在硬碟產生任何解密後的 .js 檔。
+
+動態密鑰（極高安全性）：解密金鑰不要寫在 main.js 裡面，而是讓 Python 在啟動 Electron 時透過環境變數（Environment Variable）傳遞。這樣一來，硬碟上的 main.js 連金鑰都沒有，別人拿著 payload.dat 也完全無法解密！
+
+一步一步實作教學
+步驟 1：在 Python 端將大型 JS 檔加密 (build_payload.py)
+在你的 Python 開發環境中，安裝標準加密庫（pip install pycryptodome），並執行以下腳本將你的 JS 檔案加密：
+
+Python
+# build_payload.py (在你的 Python 環境執行)
+from Crypto.Cipher import AES
+import base64
+
+# 定義 32 位元的 AES 金鑰 (這把金鑰保留在 Python 程式碼中)
+SECRET_KEY = b'MySecretKeyForElectronInject1234' # 必須剛好 32 bytes
+
+def encrypt_large_js(js_file_path, output_dat_path):
+    with open(js_file_path, 'r', encoding='utf-8') as f:
+        js_data = f.read().encode('utf-8')
+    
+    # 使用 AES-GCM 模式加密
+    cipher = AES.new(SECRET_KEY, AES.MODE_GCM)
+    ciphertext, tag = cipher.encrypt_and_digest(js_data)
+    
+    # 打包 nonce(16b) + tag(16b) + ciphertext 寫入檔案
+    payload = cipher.nonce + tag + ciphertext
+    with open(output_dat_path, 'wb') as f:
+        f.write(payload)
+        
+    print(f"加密完成！已輸出加密檔：{output_dat_path}")
+
+if __name__ == "__main__":
+    # 將你的大型 JS 檔案加密成 payload.dat
+    encrypt_large_js("my_large_script.js", "payload.dat")
+步驟 2：Python 注入到 main.js 的引導碼模板
+這段 JavaScript 程式碼完全不需要第三方庫，直接使用 Electron 內建的模組：
+
+JavaScript
+/* --- Python 注入的載入器開始 --- */
+(function() {
+    const fs = require('fs');
+    const crypto = require('crypto');
+    const vm = require('vm');
+    const path = require('path');
+
+    // 1. 從環境變數取得 Python 傳進來的 AES 金鑰
+    const hexKey = process.env.INJECT_KEY;
+    if (!hexKey) return;
+
+    try {
+        const key = Buffer.from(hexKey, 'hex');
+        // 讀取加密的 payload.dat (路徑可根據放置位置調整)
+        const datPath = path.join(__dirname, 'payload.dat');
+        const fileBuffer = fs.readFileSync(datPath);
+
+        // 2. 拆解 AES-GCM 數據 (nonce: 16b, tag: 16b)
+        const nonce = fileBuffer.slice(0, 16);
+        const tag = fileBuffer.slice(16, 32);
+        const ciphertext = fileBuffer.slice(32);
+
+        // 3. 原生解密
+        const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
+        decipher.setAuthTag(tag);
+        let decrypted = decipher.update(ciphertext, null, 'utf8');
+        decrypted += decipher.final('utf8');
+
+        // 4. 在記憶體中直接執行解密後的 JS
+        vm.runInThisContext(decrypted);
+    } catch (e) {
+        // 解密失敗或密鑰錯誤時靜默跳過
+    }
+})();
+/* --- Python 注入的載入器結束 --- */
+步驟 3：Python 自動化注入與啟動 Electron (main.py)
+在你的 Python 主程式中，負責解包 app.asar 或修改 main.js，並啟動 Electron：
+
+Python
+# main.py (你的主程式，後續會用 PyArmor 打包)
+import os
+import subprocess
+
+# 步驟 1 定義的金鑰轉換為 HEX 字串
+SECRET_KEY_HEX = b'MySecretKeyForElectronInject1234'.hex()
+
+# 步驟 2 的 Node.js 載入器字串
+NODE_LOADER_CODE = """
+(function(){const f=require('fs'),c=require('crypto'),v=require('vm'),p=require('path');
+const k=process.env.INJECT_KEY;if(!k)return;
+try{const key=Buffer.from(k,'hex'),b=f.readFileSync(p.join(__dirname,'payload.dat'));
+const d=c.createDecipheriv('aes-256-gcm',key,b.slice(0,16));d.setAuthTag(b.slice(16,32));
+let r=d.update(b.slice(32),null,'utf8')+d.final('utf8');v.runInThisContext(r);}catch(e){}})();
+"""
+
+def inject_and_run_electron():
+    # 1. 將 payload.dat 複製/放入 Electron 的目錄中
+    # (此處省略複製 payload.dat 的程式碼)
+
+    # 2. 修改/追加引導碼至 Electron 的 main.js
+    main_js_path = r"path\to\electron\resources\app\main.js"
+    
+    with open(main_js_path, 'a', encoding='utf-8') as f:
+        f.write("\n" + NODE_LOADER_CODE)
+
+    # 3. 帶入環境變數並啟動 Electron
+    env = os.environ.copy()
+    env["INJECT_KEY"] = SECRET_KEY_HEX  # 將金鑰帶入環境變數
+
+    electron_exe = r"path\to\electron\Electron.exe"
+    # 使用 Python 啟動 Electron
+    subprocess.Popen([electron_exe], env=env)
+
+if __name__ == "__main__":
+    inject_and_run_electron()
+這個架構的安全性分析
+硬碟無明文：硬碟上只有加密過的 payload.dat，別人用記事本打開只會看到亂碼。
+
+main.js 無金鑰：注入到 main.js 的程式碼只有幾行解密邏輯，裡面完全沒有解密金鑰。別人就算打開 main.js 看到這段代碼，沒有金鑰也無法解開 payload.dat。
+
+金鑰存在於 Python 中：解密金鑰放在 Python 程式碼中，而你的 Python 程式碼會經過 PyArmor 加密打包，逆向者無法拿到金鑰。
+
+無痕執行：解密後的 JavaScript 直接在 V8 記憶體引擎（vm）中執行，不會生成任何 .js 暫存檔，無法從硬碟側錄。
+
+需要協助寫一個 Python 自動解包與重新打包 app.asar 的範例腳本嗎？
+
+是
+我要針對的是己經打包好的app.asar ,main.js是我透過算出的位置針對app.asar做處理
+
+目前己經可以插入到我所想要的位置,現在要的是保護我插入的原本js代碼中,引入外部js文字檔的內容
+
+既然已經能做到利用 Python 對 app.asar 的二進位位置精準插入代碼，保護外部 JavaScript 文字檔的最佳做法是：將該文字檔轉為 AES-256 加密檔 (.dat)，並由 Python 在啟動 Electron 時動態傳遞解密金鑰。
+
+這樣可以確保：
+
+硬碟上只有加密檔，用記事本打開全是亂碼。
+
+注入在 main.js 裡的引導碼不含解密金鑰（即使被從 app.asar 提取出來也無用）。
+
+金鑰存在於受 PyArmor 保護的 Python 程式中，只有經由你的 Python 啟動 Electron 時，才會在記憶體內解密並執行。
+
+具體實作三步驟
+步驟 1：Python 端——將 JS 文字檔加密成 .dat 檔
+在你的開發階段，使用 Python 將要保護的 JavaScript 文字檔加密（可先安裝 pip install pycryptodome）：
+
+Python
+# encrypt_tool.py (開發者自己執行)
+from Crypto.Cipher import AES
+
+# 32 bytes 的 AES-256 金鑰 (這把金鑰會存在你的 Python 主程式中)
+KEY = b'MySecretKeyForElectronJS12345678'  # 必須剛好 32 位元組
+
+def encrypt_js_file(js_input_path, dat_output_path):
+    with open(js_input_path, 'r', encoding='utf-8') as f:
+        data = f.read().encode('utf-8')
+
+    # 使用 AES-GCM 模式
+    cipher = AES.new(KEY, AES.MODE_GCM)
+    ciphertext, tag = cipher.encrypt_and_digest(data)
+
+    # 寫入二進位檔：nonce(16b) + tag(16b) + ciphertext
+    with open(dat_output_path, 'wb') as f:
+        f.write(cipher.nonce + tag + ciphertext)
+
+    print(f"成功將 {js_input_path} 加密為 {dat_output_path}")
+
+if __name__ == "__main__":
+    encrypt_js_file("my_secret_code.js", "core.dat")
+步驟 2：寫入 main.js 的二進位引導碼 (Node.js 記憶體載入)
+這段引導碼是你需要透過算好的 Offset 插入到 app.asar 中 main.js 的程式碼。它會直接調用 Electron 內建的 crypto 與 vm 模組，在記憶體中解密並執行 core.dat：
+
+JavaScript
+/* --- Injected Loader --- */
+(function(){
+    try {
+        const fs = require('fs');
+        const crypto = require('crypto');
+        const vm = require('vm');
+        const path = require('path');
+
+        // 1. 從環境變數讀取 Python 傳進來的 HEX 金鑰
+        const hexKey = process.env.INJECT_KEY;
+        if (!hexKey) return;
+
+        // 2. 讀取外部加密檔 core.dat (路徑可設為與 Electron.exe 同目錄或相對目錄)
+        const datPath = path.join(path.dirname(process.execPath), 'core.dat');
+        if (!fs.existsSync(datPath)) return;
+
+        const buf = fs.readFileSync(datPath);
+        const key = Buffer.from(hexKey, 'hex');
+
+        // 3. 拆解 AES-GCM 數據 (nonce: 16b, tag: 16b, cipher: 剩餘部分)
+        const nonce = buf.subarray(0, 16);
+        const tag = buf.subarray(16, 32);
+        const cipher = buf.subarray(32);
+
+        // 4. 原生解密
+        const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
+        decipher.setAuthTag(tag);
+        let decrypted = decipher.update(cipher, null, 'utf8') + decipher.final('utf8');
+
+        // 5. 直接在 V8 記憶體中執行解密後的 JS
+        vm.runInThisContext(decrypted);
+    } catch(e) {}
+})();
+提示：如果在二進位替換時有字數限制，可將上述 JavaScript 程式碼去除換行與空格進行極小化（Minify）。
+
+步驟 3：Python 主程式——修改 app.asar 並傳金鑰啟動
+在你的 Python 自動化軟體中，除了執行你現有的 app.asar 插入邏輯外，啟動 Electron 時帶入環境變數：
+
+Python
+# main.py (你的 Python 自動化主程式)
+import os
+import subprocess
+
+# 步驟 1 定義的金鑰，轉成 HEX 字串傳遞
+KEY = b'MySecretKeyForElectronJS12345678'
+KEY_HEX = KEY.hex()
+
+def run_protected_electron(electron_exe_path):
+    # 1. (你原本的邏輯) 對 app.asar 進行 Offset 二進位修改，插入步驟 2 的引導碼
+    # patch_app_asar()
+
+    # 2. 將金鑰寫入當前進程的環境變數副本
+    env = os.environ.copy()
+    env["INJECT_KEY"] = KEY_HEX
+
+    # 3. 啟動 Electron (帶入環境變數)
+    subprocess.Popen([electron_exe_path], env=env)
+
+if __name__ == "__main__":
+    run_protected_electron(r"C:\Path\To\Electron.exe")
+安全防護優勢
+檔案無法直視：使用者拿到的是 core.dat，以文字編輯器開啟全是亂碼。
+
+app.asar 無金鑰：就算別人把 app.asar 解包，只能看到「從 process.env.INJECT_KEY 讀取金鑰並解密 core.dat」的程式碼，找不到密鑰便無法還原 core.dat。
+
+無解密暫存檔：Node.js 使用 vm.runInThisContext() 直接在 V8 記憶體層級運行字串，完全不會在硬碟寫入任何解密後的 .js 檔案。
+
+金鑰安全：金鑰只存在於 Python 變數中，當你的 Python 經由 PyArmor 加密打包為 .exe 後，金鑰將無法被輕易抽取。
+
+幫我把所有的對話邏輯做一次總結整理
+
+包含
+
+1.python原始碼的保護,針對發放給其他user 程式的保護
+
+這份總結歸納了我們討論過的所有架構設計與對話邏輯，專為純 Python 環境、無伺服器、離線白名單驗證、以及 Electron 注入保護的情境所量身打造：
+
+1. Python 原始碼與發布防護體系
+A. 程式碼混淆與防反編譯（PyArmor + PyInstaller）
+選型理由：在只能使用 Python 工具（pip）且不安裝 C/C++ 編譯器的限制下，PyArmor 是防護強度最高的方案。
+
+防護機制：
+
+字串與邏輯加密：寫在 Python 內部的字串常數（如 AES 金鑰、RSA 公鑰、二進位 Offset 邏輯）會全部被動態加密。傳統反編譯工具（如 pycdc）抽取出的檔案只會顯示無效亂碼。
+
+啟動效能優化：採用 PyInstaller 的 --onedir（資料夾模式 -D），避免 --onefile 每次雙擊執行都要解壓至 %TEMP% 的延遲，達到 0 秒即刻啟動。
+
+B. 離線白名單授權與硬體綁定（RSA 數位簽章）
+核心需求：限制特定電腦才能執行，發放新客戶時無需重新打包 .exe，且無伺服器可供線上驗證。
+
+防偽原理（非對稱加密）：
+
+開發者端（持有私鑰 private.pem）：收集客戶主機板 UUID（HWID），使用私鑰對包含 HWID 的 JSON 資料進行 RSA-SHA256 數位簽章，輸出 whitelist.lic。
+
+客戶端 .exe（內嵌公鑰 public.pem）：程式啟動時，使用公鑰驗證 whitelist.lic 的簽章完整性，並比對本機 UUID。
+
+為什麼 User 無法偽造白名單：
+User 電腦內只有 .exe（僅含公鑰），沒有開發者的私鑰。User 就算手動修改 whitelist.lic 加入自己的 HWID，也會因為無法產出對應的私鑰簽章，在 .exe 啟動時被 rsa.verify() 直接判定為篡改而強制退出。
+
+2. Electron 自動化與外部 JS 腳本隱藏架構
+核心挑戰
+需要保護一段龐大的外部 JavaScript 腳本，透過 Python 以二進位 Offset 方式寫入已打包的 app.asar 之 main.js 中，且客戶端沒有 Node.js 開發環境。
+
+三層無痕防禦架構
+Plaintext
+[ 磁碟硬碟 ]                  [ 記憶體運行層 ]
+core.dat (AES-256 加密)  ──┐
+                         ├──> Node.js 內建 crypto 解密
+INJECT_KEY (環境變數)   ──┘            │
+(由 PyArmor .exe 注入)                 ▼
+                             vm.runInThisContext() 執行
+                             (V8 記憶體直接運行，硬碟 0 暫存檔)
+靜態檔案加密 (core.dat)：
+大型 JavaScript 文字檔在開發階段預先透過 Python 轉為 AES-256-GCM 二進位檔 (core.dat)。放在客戶端硬碟時，用文字編輯器開啟全是亂碼。
+
+無金鑰引導碼（二進位注入 main.js）：
+Python 透過算好的 Offset 插入 main.js 的引導腳本不包含任何解密金鑰。它僅利用 Node.js 原生的 crypto 與 vm 模組，從系統環境變數讀取金鑰並在 V8 記憶體中執行解密內容，完全不會在硬碟產生解密後的 .js 暫存檔。
+
+動態金鑰傳遞 (INJECT_KEY)：
+解密金鑰鎖在經 PyArmor 加密保護的 Python .exe 中。Python 在呼叫 subprocess.Popen 啟動 Electron 時，將金鑰寫入進程的環境變數。
+
+3. 全套開發與客戶端執行整體流程圖
+【開發者發布作業流程】
+Plaintext
+ 1. 產生 RSA 金鑰對 (gen_keys.py)
+    └── private.pem (嚴格保密)
+    └── public.pem  (寫入 main.py)
+
+ 2. 加密核心 JS 檔案 (encrypt_tool.py)
+    └── 將大型 JS 加密成 core.dat (附帶在發布資料夾中)
+
+ 3. 簽署客戶白名單 (gen_whitelist.py)
+    └── 收集客戶 UUID ➔ 使用 private.pem 簽署 ➔ 輸出 whitelist.lic
+
+ 4. 加密與打包 Python 主程式
+    └── pyarmor gen -O dist_obf main.py
+    └── pyinstaller -D --noconsole --distpath ./release dist_obf/main.py
+【客戶端 .exe 啟動執行邏輯】
+Plaintext
+ 雙擊 main.exe
+   │
+   ├── 步驟 1：讀取 whitelist.lic
+   │    ├── 使用內嵌 public.pem 驗證 RSA 簽章（若被修改 ➔ 退出）
+   │    └── 比對本機 WMIC UUID 是否在白名單中（若不符 ➔ 退出）
+   │
+   ├── 步驟 2：修改與注入 app.asar
+   │    └── 透過算好的二進位 Offset，將無金鑰引導碼寫入 app.asar 的 main.js
+   │
+   └── 步驟 3：啟動 Electron
+        ├── 建立帶有 INJECT_KEY=HEX_KEY 的環境變數
+        └── 啟動 Electron.exe ➔ main.js 讀取環境變數 ➔ 記憶體解密 core.dat 運行
+要我為你整理一份全專案的檔案目錄規劃與關鍵檔名清單嗎？
+
+是
+好的,並且客戶主機板 UUID（HWID）的部份改成取得user的電腦名稱來保護就可以
+
+請產生全部的代碼且幫我在代碼中詳細的說明每段在做什麼
+
+並且給我一份完整且清淅的邏輯架構圖
+
+系統邏輯架構圖
+Plaintext
+========================================================================================
+                              開發者端 (Developer Environment)
+========================================================================================
+[1. gen_keys.py] ───────► 產生私鑰 (private.pem - 本地嚴格保密)
+                           └── 產生公鑰 (public.pem - 硬編碼內嵌至 main.py)
+
+[2. encrypt_js.py] ─────► 使用 AES-256 金鑰將大型 JS 檔加密 ➔ 輸出 core.dat
+
+[3. gen_whitelist.py] ──► 收集授權的電腦名稱 (COMPUTERNAME) 
+                           └── 用 private.pem 對電腦名稱清單進行 RSA 簽署 ➔ 輸出 whitelist.lic
+
+[4. 打包編譯] ───────────► PyArmor 加密 main.py ➔ PyInstaller 打包成獨立資料夾
+                                           │
+                                           │ 交付產出物 (main.exe 資料夾 + core.dat + whitelist.lic)
+                                           ▼
+========================================================================================
+                               使用者端 (Client Environment)
+========================================================================================
+【使用者執行 main.exe】
+    │
+    ├──► [步驟一：RSA 離線授權驗證]
+    │      ├── 讀取本機電腦名稱: os.getenv('COMPUTERNAME')
+    │      ├── 讀取 whitelist.lic，使用內嵌的 public.pem 進行 RSA 簽章驗證
+    │      └── 若「簽章遭篡改」或「電腦名稱不在白名單」➔ 顯示錯誤並強制退出
+    │
+    ├──► [步驟二：app.asar 二進位補丁注入]
+    │      └── 根據預先計算好的 Offset 位置，將「無金鑰 Loader 腳本」覆寫/寫入 app.asar
+    │
+    └──► [步驟三：帶入金鑰並啟動 Electron]
+           ├── 將 AES 金鑰轉為 HEX 字串，寫入當前進程的環境變數 (INJECT_KEY)
+           └── 啟動 Electron.exe
+                  │
+                  ▼
+       【Electron 內部 main.js 執行流】
+          ├── 1. 從 process.env.INJECT_KEY 讀取金鑰
+          ├── 2. 讀取與 Electron 同目錄下的 core.dat
+          ├── 3. 使用 Node.js 原生 crypto 模組進行 AES-256-GCM 解密
+          └── 4. 使用 vm.runInThisContext() 於 V8 記憶體中運行 (硬碟全程 0 暫存檔)
+工具套件需求
+在開發者電腦執行以下指令安裝必要套件：
+
+Bash
+pip install rsa pycryptodome pyarmor pyinstaller
+開發者端程式碼（僅在開發者電腦執行）
+1. 產生 RSA 2048 位元公私鑰對 (gen_keys.py)
+Python
+# gen_keys.py
+# 作用：產生非對稱加密所需的 RSA 公私鑰對。私鑰用於簽署白名單，公鑰用於驗證白名單。
+import rsa
+
+def generate_key_pair():
+    print("正在產生 2048 位元 RSA 公私鑰對...")
+    # 產生 2048 位元金鑰，平衡安全性與驗證速度
+    pubkey, privkey = rsa.newkeys(2048)
+
+    # 儲存私鑰 (絕對不能發給客戶，僅保留在開發者電腦)
+    with open("private.pem", "wb") as f:
+        f.write(privkey.save_pkcs1())
+
+    # 儲存公鑰 (後續需要將內容寫死在 main.py 主程式中)
+    with open("public.pem", "wb") as f:
+        f.write(pubkey.save_pkcs1())
+
+    print("【完成】已產生 private.pem (私鑰) 與 public.pem (公鑰)")
+
+if __name__ == "__main__":
+    generate_key_pair()
+2. 加密大型 JavaScript 腳本 (encrypt_js.py)
+Python
+# encrypt_js.py
+# 作用：將敏感的大型 JS 腳本使用 AES-256-GCM 加密，產出即使被拿到也無法讀取的 core.dat
+from Crypto.Cipher import AES
+
+# 32 位元組 (256 bits) AES 金鑰 (此金鑰需與 main.py 中的金鑰一致)
+AES_KEY = b'MySecretKeyForElectronJS12345678'
+
+def encrypt_javascript_file(input_js_path, output_dat_path):
+    print(f"開始加密 {input_js_path}...")
+    
+    # 讀取原始明文 JS 檔案
+    with open(input_js_path, 'r', encoding='utf-8') as f:
+        raw_js_bytes = f.read().encode('utf-8')
+
+    # 初始化 AES-GCM 加密器
+    cipher = AES.new(AES_KEY, AES.MODE_GCM)
+    ciphertext, tag = cipher.encrypt_and_digest(raw_js_bytes)
+
+    # 將結構打包：nonce (16 bytes) + tag (16 bytes) + ciphertext (密文)
+    # nonce 與 tag 用於 GCM 驗證數據完整性，防止密文被篡改
+    packed_payload = cipher.nonce + tag + ciphertext
+
+    # 寫入二進位檔案 core.dat
+    with open(output_dat_path, 'wb') as f:
+        f.write(packed_payload)
+
+    print(f"【完成】已輸出加密檔案至：{output_dat_path}")
+
+if __name__ == "__main__":
+    encrypt_javascript_file("my_large_script.js", "core.dat")
+3. 簽署電腦名稱白名單 (gen_whitelist.py)
+Python
+# gen_whitelist.py
+# 作用：讀取許可的電腦名稱列表，使用私鑰 (private.pem) 進行數位簽章，產出白名單授權檔 whitelist.lic
+import json
+import base64
+import rsa
+
+def create_signed_whitelist(allowed_computer_names, private_key_path, output_lic_path):
+    print("開始簽署電腦名稱白名單...")
+
+    # 1. 將電腦名稱統一轉為大寫，避免因大小寫差異導致比對失敗
+    normalized_names = [name.strip().upper() for name in allowed_computer_names]
+    
+    # 2. 構建白名單資料結構
+    data_structure = {
+        "allowed_computers": normalized_names,
+        "issued_by": "Developer"
+    }
+    
+    # 轉成固定的 JSON 字串 (sort_keys=True 確保序列化順序一致)
+    json_bytes = json.dumps(data_structure, sort_keys=True).encode('utf-8')
+
+    # 3. 讀取私鑰進行 SHA-256 數位簽章
+    with open(private_key_path, "rb") as f:
+        privkey = rsa.PrivateKey.load_pkcs1(f.read())
+    
+    signature = rsa.sign(json_bytes, privkey, 'SHA-256')
+
+    # 4. 打包 Base64 編碼後的資料與簽章
+    license_package = {
+        "data": base64.b64encode(json_bytes).decode('utf-8'),
+        "signature": base64.b64encode(signature).decode('utf-8')
+    }
+
+    # 寫入 whitelist.lic 授權檔
+    with open(output_lic_path, "w", encoding="utf-8") as f:
+        json.dump(license_package, f, indent=4)
+
+    print(f"【完成】白名單已成功簽署並輸出至：{output_lic_path}")
+
+if __name__ == "__main__":
+    # 在此填入允許執行的客戶電腦名稱 (可同時設定多台)
+    target_computers = [
+        "DESKTOP-CLIENT01",
+        "OFFICE-PC-USER",
+        "MY-TEST-PC"
+    ]
+    create_signed_whitelist(target_computers, "private.pem", "whitelist.lic")
+使用者端主程式（經 PyArmor 加密後發布）
+4. 自動化控制與驗證主程式 (main.py)
+Python
+# main.py
+# 作用：打包發布給客戶的主程式。負責 RSA 白名單驗證、app.asar Offset 注入、並帶金鑰啟動 Electron。
+import os
+import sys
+import json
+import base64
+import socket
+import subprocess
+import rsa
+
+# ==============================================================================
+# 配置區塊 (正式發布前需確認設定)
+# ==============================================================================
+
+# 1. 硬編碼 RSA 公鑰 (從步驟 1 產生的 public.pem 複製貼上)
+PUBLIC_KEY_PEM = """-----BEGIN RSA PUBLIC KEY-----
+MIGJAoGBAM4x+3S9+7309485... (貼上 public.pem 的完整字串) ...IDAQAB
+-----END RSA PUBLIC KEY-----"""
+
+# 2. AES 加密金鑰 (必須與 encrypt_js.py 相同)
+AES_KEY = b'MySecretKeyForElectronJS12345678'
+
+# 3. 注入到 main.js 的極小化無金鑰 Loader 腳本 (經壓縮為單一行)
+# 邏輯：從環境變數 INJECT_KEY 拿金鑰 ➔ 讀取同目錄下的 core.dat ➔ 原生 AES-GCM 解密 ➔ 在 V8 記憶體運行
+INJECTED_LOADER_JS = (
+    "(function(){try{const f=require('fs'),c=require('crypto'),v=require('vm'),p=require('path');"
+    "const k=process.env.INJECT_KEY;if(!k)return;"
+    "const dP=p.join(p.dirname(process.execPath),'core.dat');if(!f.existsSync(dP))return;"
+    "const b=f.readFileSync(dP),key=Buffer.from(k,'hex');"
+    "const d=c.createDecipheriv('aes-256-gcm',key,b.subarray(0,16));d.setAuthTag(b.subarray(16,32));"
+    "let r=d.update(b.subarray(32),null,'utf8')+d.final('utf8');v.runInThisContext(r);}catch(e){}})();\n"
+)
+
+# ==============================================================================
+# 驗證與執行邏輯
+# ==============================================================================
+
+def get_current_computer_name():
+    """取得當前本機的電腦名稱 (相容跨平台，優先使用環境變數)"""
+    name = os.getenv('COMPUTERNAME') or socket.gethostname() or ""
+    return name.strip().upper()
+
+def verify_computer_whitelist(lic_path="whitelist.lic"):
+    """使用公鑰驗證 whitelist.lic 的 RSA 簽章，並核對電腦名稱"""
+    if not os.path.exists(lic_path):
+        print("【授權失敗】找不到白名單授權檔：whitelist.lic")
+        return False
+
+    try:
+        # 讀取授權檔
+        with open(lic_path, "r", encoding="utf-8") as f:
+            package = json.load(f)
+
+        raw_data_bytes = base64.b64decode(package["data"])
+        signature_bytes = base64.b64decode(package["signature"])
+
+        # 載入內嵌公鑰並驗證數位簽章 (資料若遭篡改會直接拋出 VerificationError)
+        pubkey = rsa.PublicKey.load_pkcs1(PUBLIC_KEY_PEM.encode('utf-8'))
+        rsa.verify(raw_data_bytes, signature_bytes, pubkey)
+
+        # 解開白名單資料
+        data_json = json.loads(raw_data_bytes.decode('utf-8'))
+        allowed_list = data_json.get("allowed_computers", [])
+
+        # 取得本機電腦名稱並比對
+        current_pc = get_current_computer_name()
+        if current_pc in allowed_list:
+            print(f"【驗證成功】當前電腦 ({current_pc}) 具備合法執行授權。")
+            return True
+        else:
+            print(f"【授權失敗】當前電腦名稱 ({current_pc}) 不在許可白名單中！")
+            return False
+
+    except rsa.VerificationError:
+        print("【致命錯誤】白名單授權檔簽章驗證失敗，檔案已被非授權篡改！")
+        return False
+    except Exception as e:
+        print(f"【驗證異常】解析授權檔時發生錯誤: {e}")
+        return False
+
+def patch_app_asar_at_offset(asar_path, offset, code_to_inject):
+    """
+    針對指定 Offset 位置進行二進位覆寫或寫入
+    (請根據實際分析出的 Offset 位置與長度進行調整)
+    """
+    if not os.path.exists(asar_path):
+        print(f"【注入錯誤】找不到目標 asar 檔案: {asar_path}")
+        return False
+
+    try:
+        inject_bytes = code_to_inject.encode('utf-8')
+        with open(asar_path, "r+b") as f:
+            f.seek(offset)
+            f.write(inject_bytes)
+        print("【成功】已將 Loader 腳本注入至 app.asar 中。")
+        return True
+    except Exception as e:
+        print(f"【注入失敗】修改 app.asar 時發生錯誤: {e}")
+        return False
+
+def launch_electron_process(electron_exe_path):
+    """將 AES 金鑰轉為 HEX 字串，寫入環境變數並啟動 Electron"""
+    if not os.path.exists(electron_exe_path):
+        print(f"【啟動錯誤】找不到 Electron 執行檔: {electron_exe_path}")
+        return
+
+    # 將 AES 金鑰轉換為 HEX 字串
+    hex_key = AES_KEY.hex()
+
+    # 建立環境變數副本，加入 INJECT_KEY
+    env_vars = os.environ.copy()
+    env_vars["INJECT_KEY"] = hex_key
+
+    print("正在啟動 Electron 並帶入動態解密金鑰...")
+    # 使用 Popen 非阻塞啟動 Electron
+    subprocess.Popen([electron_exe_path], env=env_vars)
+
+# ==============================================================================
+# 主程式進入點
+# ==============================================================================
+def main():
+    print("=== 自動化啟動系統 ===")
+
+    # 1. 執行離線電腦名稱與 RSA 白名單驗證
+    if not verify_computer_whitelist("whitelist.lic"):
+        print("系統無法啟動，請聯繫開發者取得授權。")
+        input("按 Enter 鍵結束...")
+        sys.exit(1)
+
+    # 2. 設定相對路徑 (請依實際專案架構調整)
+    asar_path = os.path.join("resources", "app.asar")
+    electron_exe = os.path.join("Electron.exe")
+    
+    # 預先計算好的 main.js 在 app.asar 中的二進位 Offset
+    TARGET_OFFSET = 0x1234  # 請替換為你實際測量出的 Offset 十六進位數值
+
+    # 3. 執行二進位注入 (寫入不含金鑰的 Loader 腳本)
+    patch_app_asar_at_offset(asar_path, TARGET_OFFSET, INJECTED_LOADER_JS)
+
+    # 4. 帶入金鑰環境變數並啟動 Electron
+    launch_electron_process(electron_exe)
+
+if __name__ == "__main__":
+    main()
+打包編譯與交付指引
+對 Python 程式碼進行加密與打包：
+
+Bash
+# 步驟 1: 使用 PyArmor 加密混淆 main.py，產出至 dist_obf 資料夾
+pyarmor gen -O dist_obf main.py
+
+# 步驟 2: 使用 PyInstaller 將加密後的檔案打包成資料夾模式 (-D)，0 秒快速啟動
+pyinstaller -D --noconsole --distpath ./release dist_obf/main.py
+交付給客戶的完整資料夾內容：
+將打包產出的 release/main 資料夾發送給客戶，內部包含以下主要結構：
+
+Plaintext
+release/main/
+├── main.exe            <-- 客戶執行的主程式 (經 PyArmor 加密保護)
+├── core.dat            <-- 經 AES-256 加密的大型 JS 腳本
+├── whitelist.lic       <-- 經 RSA 簽署的電腦名稱授權檔
+└── _internal/          <-- PyInstaller 與 PyArmor 的相依執行庫 (.dll/.pyd)
